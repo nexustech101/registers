@@ -34,7 +34,18 @@ def db_url(tmp_path: Path, name: str = "test") -> str:
     return f"sqlite:///{tmp_path / f'{name}.db'}"
 
 
-def _wait_for_database(url: str, *, timeout_seconds: int = 90) -> None:
+def _compose_output(*args: str) -> str:
+    cmd = ["docker", "compose", "-f", str(DOCKER_COMPOSE_FILE), *args]
+    try:
+        result = subprocess.run(cmd, check=False, capture_output=True, text=True)
+    except FileNotFoundError:
+        return "docker compose unavailable"
+    out = result.stdout.strip()
+    err = result.stderr.strip()
+    return "\n".join(part for part in (out, err) if part)
+
+
+def _wait_for_database(url: str, *, timeout_seconds: int = 180) -> None:
     deadline = time.time() + timeout_seconds
     last_error: Exception | None = None
 
@@ -50,7 +61,13 @@ def _wait_for_database(url: str, *, timeout_seconds: int = 90) -> None:
         finally:
             engine.dispose()
 
-    raise RuntimeError(f"Database '{url}' was not ready in {timeout_seconds}s: {last_error}")
+    ps_output = _compose_output("ps")
+    logs_output = _compose_output("logs", "--tail", "200", "postgres", "mysql")
+    raise RuntimeError(
+        f"Database '{url}' was not ready in {timeout_seconds}s: {last_error}\n\n"
+        f"docker compose ps:\n{ps_output}\n\n"
+        f"docker compose logs:\n{logs_output}"
+    )
 
 
 @pytest.fixture(scope="session")
@@ -81,9 +98,13 @@ def docker_backends() -> dict[str, str]:
             "Docker is required to run the PostgreSQL/MySQL integration tests."
         ) from exc
     except subprocess.CalledProcessError as exc:
+        ps_output = _compose_output("ps")
+        logs_output = _compose_output("logs", "--tail", "200", "postgres", "mysql")
         raise RuntimeError(
             "Failed to start docker compose services for backend tests.\n"
-            f"stdout:\n{exc.stdout}\n\nstderr:\n{exc.stderr}"
+            f"stdout:\n{exc.stdout}\n\nstderr:\n{exc.stderr}\n\n"
+            f"docker compose ps:\n{ps_output}\n\n"
+            f"docker compose logs:\n{logs_output}"
         ) from exc
 
     try:

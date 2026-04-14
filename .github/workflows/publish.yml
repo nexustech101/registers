@@ -31,8 +31,19 @@ jobs:
       - name: Install package with dev dependencies
         run: pip install -e ".[dev]"
 
+      - name: Docker preflight
+        run: |
+          docker version
+          docker compose version
+
       - name: Run tests
         run: pytest
+
+      - name: Dump DB service logs on test failure
+        if: failure()
+        run: |
+          docker compose -f docker-compose.test-db.yml ps || true
+          docker compose -f docker-compose.test-db.yml logs --tail=200 postgres mysql || true
 
       - name: Build package
         run: python -m build
