@@ -12,12 +12,12 @@ import argparse
 import inspect
 from typing import TYPE_CHECKING, Any, get_origin, get_args, Literal
 
-from decorators.cli.registry import CommandRegistry
-from decorators.cli.utils.reflection import get_params
-from decorators.cli.utils.typing import is_bool_flag, is_optional, resolve_argparse_type
+from registers.cli.registry import CommandRegistry
+from registers.cli.utils.reflection import get_params
+from registers.cli.utils.typing import is_bool_flag, is_optional, resolve_argparse_type
 
 if TYPE_CHECKING:
-    from decorators.cli.container import DIContainer
+    from registers.cli.container import DIContainer
 
 
 class SuggestingArgumentParser(argparse.ArgumentParser):

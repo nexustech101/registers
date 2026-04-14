@@ -7,7 +7,7 @@ is needed.
 
 Usage::
 
-    from decorators.cli import load_plugins
+    from registers.cli import load_plugins
     from app.commands import user_commands  # treated as a package
 
     load_plugins("app.commands", registry)
@@ -24,8 +24,8 @@ import logging
 import pkgutil
 from types import ModuleType
 
-from decorators.cli.exceptions import PluginLoadError
-from decorators.cli.registry import CommandRegistry
+from registers.cli.exceptions import PluginLoadError
+from registers.cli.registry import CommandRegistry
 
 logger = logging.getLogger(__name__)
 

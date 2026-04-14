@@ -7,18 +7,18 @@ with no real filesystem or subprocess involvement.
 
 import pytest
 
-from decorators.cli.registry import CommandRegistry
-from decorators.cli.container import DIContainer
-from decorators.cli.exceptions import (
+from registers.cli.registry import CommandRegistry
+from registers.cli.container import DIContainer
+from registers.cli.exceptions import (
     DuplicateCommandError,
     UnknownCommandError,
     DependencyNotFoundError,
 )
-from decorators.cli.dispatcher import Dispatcher
-from decorators.cli.parser import build_parser
-from decorators.cli.middleware import MiddlewareChain
-from decorators.cli.utils.typing import resolve_argparse_type, is_bool_flag, is_optional
-from decorators.cli.utils.reflection import get_params
+from registers.cli.dispatcher import Dispatcher
+from registers.cli.parser import build_parser
+from registers.cli.middleware import MiddlewareChain
+from registers.cli.utils.typing import resolve_argparse_type, is_bool_flag, is_optional
+from registers.cli.utils.reflection import get_params
 from typing import Optional
 
 

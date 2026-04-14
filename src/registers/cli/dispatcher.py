@@ -12,11 +12,11 @@ from __future__ import annotations
 import inspect
 from typing import Any
 
-from decorators.cli.exceptions import DependencyNotFoundError
-from decorators.cli.middleware import MiddlewareChain
-from decorators.cli.container import DIContainer
-from decorators.cli.registry import CommandRegistry
-from decorators.cli.utils.reflection import get_params
+from registers.cli.exceptions import DependencyNotFoundError
+from registers.cli.middleware import MiddlewareChain
+from registers.cli.container import DIContainer
+from registers.cli.registry import CommandRegistry
+from registers.cli.utils.reflection import get_params
 
 
 class Dispatcher:

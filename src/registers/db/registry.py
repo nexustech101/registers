@@ -45,8 +45,8 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.engine import Connection
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
-from decorators.db.engine import dispose_engine, get_engine
-from decorators.db.exceptions import (
+from registers.db.engine import dispose_engine, get_engine
+from registers.db.exceptions import (
     DuplicateKeyError,
     ImmutableFieldError,
     InvalidPrimaryKeyAssignmentError,
@@ -55,10 +55,10 @@ from decorators.db.exceptions import (
     SchemaError,
     UniqueConstraintError,
 )
-from decorators.db.metadata import RegistryConfig
-from decorators.db.schema import SchemaManager
-from decorators.db.security import hash_password, is_password_hash
-from decorators.db.typing_utils import (
+from registers.db.metadata import RegistryConfig
+from registers.db.schema import SchemaManager
+from registers.db.security import hash_password, is_password_hash
+from registers.db.typing_utils import (
     default_database_url,
     default_table_name,
     field_allows_none,
@@ -67,7 +67,7 @@ from decorators.db.typing_utils import (
 )
 
 ModelT = TypeVar("ModelT", bound=BaseModel)
-_ORIGINAL_KEY_ATTR = "__decorators_original_key__"
+_ORIGINAL_KEY_ATTR = "__registers_original_key__"
 _PASSWORD_FIELD = "password"
 
 

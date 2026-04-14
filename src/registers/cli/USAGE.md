@@ -1,6 +1,6 @@
-# Building CLI Tools With `decorators.cli`
+# Building CLI Tools With `registers.cli`
 
-`decorators.cli` is a lightweight decorator-based framework for building command-line tools from ordinary Python functions.
+`registers.cli` is a lightweight decorator-based framework for building command-line tools from ordinary Python functions.
 
 It supports two usage styles:
 
@@ -12,7 +12,7 @@ This guide focuses on the second style, because it is the fastest way to build a
 ## Quick Start
 
 ```python
-from decorators.cli import CommandRegistry
+from registers.cli import CommandRegistry
 
 cli = CommandRegistry()
 
@@ -45,12 +45,12 @@ python test.py g Alice
 The registry stores cli metadata and handler functions.
 
 ```python
-from decorators.cli import CommandRegistry
+from registers.cli import CommandRegistry
 
 cli = CommandRegistry()
 ```
 
-### 2. Register clis with decorators
+### 2. Register clis with registers
 
 Each decorated function becomes a subcli.
 
@@ -169,10 +169,10 @@ def list_clis() -> None:
 
 ## Dependency Injection
 
-For larger apps, `decorators.cli` still supports the lower-level DI container and dispatcher flow.
+For larger apps, `registers.cli` still supports the lower-level DI container and dispatcher flow.
 
 ```python
-from decorators.cli import CommandRegistry, DIContainer, Dispatcher, build_parser
+from registers.cli import CommandRegistry, DIContainer, Dispatcher, build_parser
 
 registry = CommandRegistry()
 container = DIContainer()

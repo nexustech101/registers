@@ -1,9 +1,9 @@
 """
-A lightweight, decorators-based CLI framework.
+A lightweight, registers-based CLI framework.
 
 Public API surface::
 
-    from decorators.cli import (
+    from registers.cli import (
         CommandRegistry,
         DIContainer,
         MiddlewareChain,
@@ -15,23 +15,23 @@ Public API surface::
     )
 """
 
-from decorators.cli.dispatcher import Dispatcher
-from decorators.cli.middleware import (
+from registers.cli.dispatcher import Dispatcher
+from registers.cli.middleware import (
     MiddlewareChain,
     logging_middleware_post,
     logging_middleware_pre,
 )
-from decorators.cli.parser import build_parser
-from decorators.cli.container import DIContainer
-from decorators.cli.exceptions import (
+from registers.cli.parser import build_parser
+from registers.cli.container import DIContainer
+from registers.cli.exceptions import (
     DependencyNotFoundError,
     DuplicateCommandError,
     FrameworkError,
     PluginLoadError,
     UnknownCommandError,
 )
-from decorators.cli.registry import CommandRegistry
-from decorators.cli.plugins import load_plugins
+from registers.cli.registry import CommandRegistry
+from registers.cli.plugins import load_plugins
 
 __all__ = [
     # Core framework

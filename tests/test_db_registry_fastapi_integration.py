@@ -1,5 +1,5 @@
 """
-Integration tests for using decorators.db inside a FastAPI application.
+Integration tests for using registers.db inside a FastAPI application.
 
 These tests exercise a realistic API lifecycle: schema startup, user creation,
 password hashing, login, update, retrieval, and deletion.
@@ -19,7 +19,7 @@ pytest.importorskip("httpx")
 from fastapi import FastAPI, HTTPException
 import httpx
 
-from decorators.db import (
+from registers.db import (
     RecordNotFoundError,
     UniqueConstraintError,
     database_registry,

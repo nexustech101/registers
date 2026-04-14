@@ -3,7 +3,7 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "decorators"
+name = "registers"
 version = "2.0.0"
 description = "Decorator-driven persistence registry for Pydantic models and CLI tooling"
 readme = { file = "README.md", content-type = "text/markdown" }
@@ -35,8 +35,8 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/nexustech101/decorators"
-Repository = "https://github.com/nexustech101/decorators"
+Homepage = "https://github.com/nexustech101/registers"
+Repository = "https://github.com/nexustech101/registers"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -44,7 +44,7 @@ addopts = "-v --tb=short"
 
 [tool.setuptools.packages.find]
 where = ["src"]
-include = ["decorators*"]
+include = ["registers*"]
 exclude = ["*.tests*", "*.tests.*"]
 
 [tool.setuptools]

@@ -1,6 +1,6 @@
 """
 The CommandRegistry stores command metadata and provides the @register
-decorators. It is intentionally decoupled from argparse and dispatching —
+registers. It is intentionally decoupled from argparse and dispatching —
 it only knows about *what* commands exist, not *how* to invoke them.
 
 Usage::
@@ -18,11 +18,11 @@ from dataclasses import dataclass, field
 from difflib import get_close_matches
 from typing import TYPE_CHECKING, Any, Callable, Sequence
 
-from decorators.cli.exceptions import DuplicateCommandError, UnknownCommandError
+from registers.cli.exceptions import DuplicateCommandError, UnknownCommandError
 
 if TYPE_CHECKING:
-    from decorators.cli.middleware import MiddlewareChain
-    from decorators.cli.container import DIContainer
+    from registers.cli.middleware import MiddlewareChain
+    from registers.cli.container import DIContainer
 
 
 @dataclass
@@ -76,7 +76,7 @@ class CommandRegistry:
         summary = description or help_text
         normalized_ops = tuple(ops or ())
 
-        def decorators(fn: Callable[..., Any]) -> Callable[..., Any]:
+        def registers(fn: Callable[..., Any]) -> Callable[..., Any]:
             # Check command name collision
             if name in self._commands or name in self._aliases:
                 raise DuplicateCommandError(name)
@@ -99,7 +99,7 @@ class CommandRegistry:
             )
             return fn
 
-        return decorators
+        return registers
 
     # ------------------------------------------------------------------
     # Lookup
@@ -169,9 +169,9 @@ class CommandRegistry:
         """
         import sys
 
-        from decorators.cli.dispatcher import Dispatcher
-        from decorators.cli.parser import build_parser
-        from decorators.cli.container import DIContainer
+        from registers.cli.dispatcher import Dispatcher
+        from registers.cli.parser import build_parser
+        from registers.cli.container import DIContainer
 
         parser = build_parser(self, container)
         raw_argv = list(sys.argv[1:] if argv is None else argv)

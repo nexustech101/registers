@@ -1,20 +1,20 @@
-# decorators
+# registers
 
-A Python framework built with **Developer Experience (DX)** in mind. `decorators` uses a clean, ergonomic decorator registry design pattern to eliminate boilerplate when building CLI tools and database-backed applications — from lightweight scripts and data engineering pipelines to full ecommerce systems and enterprise-scale relational models.
+A Python framework built with **Developer Experience (DX)** in mind. `registers` uses a clean, ergonomic decorator registry design pattern to eliminate boilerplate when building CLI tools and database-backed applications — from lightweight scripts and data engineering pipelines to full ecommerce systems and enterprise-scale relational models.
 
 Designed to integrate seamlessly with **FastAPI** and other ASGI/WSGI frameworks out of the box.
 
 ```
-pip install decorators
+pip install registers
 ```
 
 ---
 
 ## Contents
 
-- [Why decorators?](#why-decorators)
+- [Why registers?](#why-registers)
 - [Packages](#packages)
-- [decorators.cli — CLI Framework](#decoratorscli)
+- [registers.cli — CLI Framework](#registerscli)
   - [Quick Start](#cli-quick-start)
   - [Argument Types](#argument-types)
   - [Command Aliases](#command-aliases)
@@ -22,7 +22,7 @@ pip install decorators
   - [Middleware](#middleware)
   - [Plugin System](#plugin-system)
   - [Error Handling](#error-handling)
-- [decorators.db — Database Registry](#decoratorsdb)
+- [registers.db — Database Registry](#registersdb)
   - [Quick Start](#db-quick-start)
   - [CRUD API](#crud-api)
   - [Querying](#querying)
@@ -34,11 +34,11 @@ pip install decorators
 
 ---
 
-## Why decorators?
+## Why registers?
 
 Most Python projects involve some combination of two recurring problems: **wiring up CLI commands** and **persisting data models**. The standard solutions — `argparse`, raw SQLAlchemy, `click` — are powerful but verbose. You spend more time writing plumbing than writing logic.
 
-`decorators` solves both with a consistent design philosophy: **register once, use everywhere**. A single decorator on a function makes it a CLI command. A single decorator on a Pydantic model gives it a full persistence layer. The framework handles the wiring; you write the behaviour.
+`registers` solves both with a consistent design philosophy: **register once, use everywhere**. A single decorator on a function makes it a CLI command. A single decorator on a Pydantic model gives it a full persistence layer. The framework handles the wiring; you write the behaviour.
 
 **It is particularly well-suited for:**
 
@@ -54,21 +54,21 @@ Most Python projects involve some combination of two recurring problems: **wirin
 
 | Package | Purpose |
 |---|---|
-| `decorators.cli` | Decorator-based CLI framework with argparse, DI, middleware, and plugin loading |
-| `decorators.db` | SQLAlchemy-backed persistence manager for Pydantic models |
+| `registers.cli` | Decorator-based CLI framework with argparse, DI, middleware, and plugin loading |
+| `registers.db` | SQLAlchemy-backed persistence manager for Pydantic models |
 
 Both packages are independent. Use one, the other, or both together.
 
 ---
 
-## decorators.cli
+## registers.cli
 
 A lightweight, decorator-driven CLI framework. Register Python functions as subcommands — argument parsing, type coercion, alias resolution, dependency injection, and middleware hooks are all handled by the framework.
 
 ### CLI Quick Start
 
 ```python
-from decorators.cli import CommandRegistry
+from registers.cli import CommandRegistry
 
 cli = CommandRegistry()
 
@@ -146,7 +146,7 @@ python app.py s production
 Use `DIContainer` to bind service instances to types. Any command parameter whose type is registered in the container is injected automatically and hidden from the CLI — callers never need to pass it.
 
 ```python
-from decorators.cli import CommandRegistry, DIContainer, Dispatcher, build_parser
+from registers.cli import CommandRegistry, DIContainer, Dispatcher, build_parser
 
 registry = CommandRegistry()
 container = DIContainer()
@@ -178,7 +178,7 @@ python app.py seed 100   # `db` is injected; only `count` appears on the CLI
 `MiddlewareChain` provides ordered pre- and post-execution hooks. Pre-hooks receive the command name and resolved kwargs; post-hooks receive the command name and return value.
 
 ```python
-from decorators.cli import CommandRegistry, MiddlewareChain, logging_middleware_pre, logging_middleware_post
+from registers.cli import CommandRegistry, MiddlewareChain, logging_middleware_pre, logging_middleware_post
 
 cli = CommandRegistry()
 chain = MiddlewareChain()
@@ -200,7 +200,7 @@ cli.run(middleware=chain)
 `load_plugins` dynamically imports every non-private module in a package. Any `@registry.register(...)` calls at module level execute on import — no manual wiring in `main.py` required.
 
 ```python
-from decorators.cli import CommandRegistry, load_plugins
+from registers.cli import CommandRegistry, load_plugins
 
 cli = CommandRegistry()
 load_plugins("app.commands", cli)  # auto-discovers app/commands/*.py
@@ -248,7 +248,7 @@ def deploy(env: str) -> str:
 
 ---
 
-## decorators.db
+## registers.db
 
 A SQLAlchemy-backed persistence manager for Pydantic models. One decorator gives your model a full CRUD interface, automatic table creation, schema evolution helpers, and opt-in relationship descriptors — with no separate repository classes, no manual session management, and no raw SQL.
 
@@ -256,7 +256,7 @@ A SQLAlchemy-backed persistence manager for Pydantic models. One decorator gives
 
 ```python
 from pydantic import BaseModel
-from decorators.db import database_registry
+from registers.db import database_registry
 
 
 @database_registry(
@@ -401,8 +401,8 @@ with User.objects.transaction() as conn:
 Relationships are lazy-loaded, read-only descriptors assigned after class decoration. This pattern avoids conflicts with Pydantic's metaclass and naturally resolves forward-reference ordering.
 
 ```python
-from decorators.db import database_registry
-from decorators.db.relations import HasMany, BelongsTo, HasManyThrough
+from registers.db import database_registry
+from registers.db.relations import HasMany, BelongsTo, HasManyThrough
 
 
 @database_registry("store.db", table_name="authors", key_field="id", autoincrement=True)
@@ -454,7 +454,7 @@ post.tags           # → list[Tag]
 
 ### FastAPI Integration
 
-`decorators.db` integrates cleanly with FastAPI's `lifespan` pattern for schema initialization and engine disposal:
+`registers.db` integrates cleanly with FastAPI's `lifespan` pattern for schema initialization and engine disposal:
 
 ```python
 import logging
@@ -543,7 +543,7 @@ async def create_user(user: User):
 
 ## Error Reference
 
-### decorators.cli
+### registers.cli
 
 | Exception | Raised when |
 |---|---|
@@ -552,7 +552,7 @@ async def create_user(user: User):
 | `DependencyNotFoundError` | The DI container cannot resolve a required type |
 | `PluginLoadError` | A plugin module fails to import |
 
-### decorators.db
+### registers.db
 
 | Exception | Raised when |
 |---|---|
@@ -575,20 +575,20 @@ All exceptions inherit from `FrameworkError` (CLI) or `RegistryError` (DB) for b
 ## Installation
 
 ```bash
-pip install decorators
+pip install registers
 ```
 
 **Development install (with test dependencies):**
 
 ```bash
-pip install "decorators[dev]"
+pip install "registers[dev]"
 ```
 
 **From source:**
 
 ```bash
-git clone https://github.com/yourname/decorators
-pip install ./decorators
+git clone https://github.com/yourname/registers
+pip install ./registers
 ```
 
 ---

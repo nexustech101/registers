@@ -1,5 +1,5 @@
 """
-db_registry.decorators
+db_registry.registers
 ~~~~~~~~~~~~~~~~~~~~~~
 ``@database_registry`` — the single public decoration entrypoint.
 
@@ -66,10 +66,10 @@ from typing import Any, Callable, TypeVar
 
 from pydantic import BaseModel
 
-from decorators.db.exceptions import ModelRegistrationError
-from decorators.db.registry import DatabaseRegistry
-from decorators.db.security import verify_password as verify_password_value
-from decorators.db.typing_utils import annotation_is_integer, field_allows_none
+from registers.db.exceptions import ModelRegistrationError
+from registers.db.registry import DatabaseRegistry
+from registers.db.security import verify_password as verify_password_value
+from registers.db.typing_utils import annotation_is_integer, field_allows_none
 
 ModelT = TypeVar("ModelT", bound=BaseModel)
 

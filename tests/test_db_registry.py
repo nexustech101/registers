@@ -23,7 +23,7 @@ from pathlib import Path
 import pytest
 from pydantic import BaseModel
 
-from decorators.db import (
+from registers.db import (
     BelongsTo,
     ConfigurationError,
     DatabaseRegistry,

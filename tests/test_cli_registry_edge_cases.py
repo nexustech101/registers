@@ -4,15 +4,15 @@ import inspect
 import sys
 from typing import Optional, Literal
 
-from decorators.cli.registry import (
+from registers.cli.registry import (
     CommandRegistry,
     DuplicateCommandError,
     UnknownCommandError,
 )
-from decorators.cli.container import DIContainer, DependencyNotFoundError
-from decorators.cli.parser import build_parser
-from decorators.cli.dispatcher import Dispatcher
-from decorators.cli.middleware import MiddlewareChain
+from registers.cli.container import DIContainer, DependencyNotFoundError
+from registers.cli.parser import build_parser
+from registers.cli.dispatcher import Dispatcher
+from registers.cli.middleware import MiddlewareChain
 
 
 # --------------------------------------------------

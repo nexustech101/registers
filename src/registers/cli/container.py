@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from typing import Any, Type, TypeVar
 
-from decorators.cli.exceptions import DependencyNotFoundError
+from registers.cli.exceptions import DependencyNotFoundError
 
 T = TypeVar("T")
 

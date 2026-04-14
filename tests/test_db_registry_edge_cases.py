@@ -14,7 +14,7 @@ import pytest
 from pydantic import BaseModel, Field, PrivateAttr, ValidationError, computed_field
 from sqlalchemy import inspect, text
 
-from decorators.db import (
+from registers.db import (
     HasManyThrough,
     ImmutableFieldError,
     InvalidQueryError,

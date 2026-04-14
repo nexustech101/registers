@@ -12,8 +12,8 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
-from decorators.db.exceptions import ConfigurationError
-from decorators.db.typing_utils import annotation_is_integer, field_allows_none
+from registers.db.exceptions import ConfigurationError
+from registers.db.typing_utils import annotation_is_integer, field_allows_none
 
 
 @dataclass(frozen=True)

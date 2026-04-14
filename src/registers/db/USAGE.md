@@ -1,4 +1,4 @@
-# decorators.db
+# registers.db
 
 Decorator-driven persistence for Pydantic models. Attach a SQLite-backed manager to any `BaseModel` and get a full typed CRUD API with zero boilerplate.
 
@@ -6,7 +6,7 @@ Use `database_registry` in new code. Earlier drafts of this guide referred to th
 
 ```python
 from pydantic import BaseModel
-from decorators.db import database_registry
+from registers.db import database_registry
 
 @database_registry("app.db", table_name="users", unique_fields=["email"])
 class User(BaseModel):
@@ -46,7 +46,7 @@ user = User.objects.create(name="Alice", email="alice@example.com")
 ## Installation
 
 ```bash
-pip install decorators.db
+pip install registers.db
 # or from source:
 pip install -e .
 ```
@@ -59,7 +59,7 @@ pip install -e .
 
 ```python
 from pydantic import BaseModel
-from decorators.db import database_registry
+from registers.db import database_registry
 
 @database_registry("sqlite:///blog.db", table_name="posts", unique_fields=["slug"])
 class Post(BaseModel):
@@ -106,7 +106,7 @@ database constraints directly on the field — alongside the field definition
 rather than scattered across decorator arguments.
 
 ```python
-from decorators.db import db_field
+from registers.db import db_field
 
 field = db_field(
     primary_key=False,    # bool       — marks this field as the primary key
@@ -422,7 +422,7 @@ Raises `MigrationError` if the column already exists.
 Declared using descriptor objects **assigned after** both model classes are decorated.
 
 ```python
-from decorators.db import HasMany, BelongsTo, HasManyThrough
+from registers.db import HasMany, BelongsTo, HasManyThrough
 
 Author.posts = HasMany(Post, foreign_key="author_id")
 Post.author  = BelongsTo(Author, local_key="author_id")
@@ -539,7 +539,7 @@ print(orphan.author)   # → None
 
 ```python
 from pydantic import BaseModel
-from decorators.db import database_manager, db_field, HasMany, BelongsTo, HasManyThrough
+from registers.db import database_manager, db_field, HasMany, BelongsTo, HasManyThrough
 
 DB = "ecommerce.db"
 
@@ -615,7 +615,7 @@ RegistryError
 ```
 
 ```python
-from decorators.db import (
+from registers.db import (
     DuplicateKeyError, ImmutableFieldError, InvalidPrimaryKeyAssignmentError,
     UniqueConstraintError,
     RecordNotFoundError, InvalidQueryError, RegistryError,
@@ -700,8 +700,8 @@ with Product.objects.transaction():
 ```python
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
-from decorators.db import database_manager, db_field, dispose_all
-from decorators.db import RecordNotFoundError, UniqueConstraintError
+from registers.db import database_manager, db_field, dispose_all
+from registers.db import RecordNotFoundError, UniqueConstraintError
 
 @database_manager("app.db", table_name="users")
 class User(BaseModel):
@@ -759,7 +759,7 @@ async def delete_user(user_id: int):
 ```python
 from app.container import registry
 from app.models import User
-from decorators.db import RecordNotFoundError
+from registers.db import RecordNotFoundError
 
 @registry.register("create-user", help_text="Create a new user")
 def create_user(name: str, email: str) -> None:
@@ -789,7 +789,7 @@ def delete_user(user_id: int) -> None:
 
 ```python
 from pydantic import BaseModel
-from decorators.db import DatabaseRegistry, db_field
+from registers.db import DatabaseRegistry, db_field
 
 class Widget(BaseModel):
     id: int | None = db_field(primary_key=True, default=None)
@@ -819,7 +819,7 @@ def user_registry():
 Models sharing a database URL reuse one connection pool automatically.
 
 ```python
-from decorators.db import get_engine, dispose_engine, dispose_all
+from registers.db import get_engine, dispose_engine, dispose_all
 
 engine = get_engine("sqlite:///app.db")
 dispose_engine("sqlite:///app.db")
