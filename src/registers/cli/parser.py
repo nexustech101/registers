@@ -61,7 +61,7 @@ def build_parser(
     * required primitive    → positional argument
     """
     parser = SuggestingArgumentParser(
-        description="Built with cli_registry",
+        description="Built with registers.cli",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
 

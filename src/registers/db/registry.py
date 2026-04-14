@@ -1,6 +1,6 @@
 """
-db_registry.registry
-~~~~~~~~~~~~~~~~~~~~
+registers.db.registry
+~~~~~~~~~~~~~~~~~~~~~
 ``DatabaseRegistry`` — the persistence manager attached to a model as
 ``Model.objects``.
 
@@ -22,8 +22,8 @@ Thread safety
 
 SQLite specifics
 ----------------
-* Upsert uses ``INSERT … ON CONFLICT DO UPDATE`` (SQLite dialect).
-* When used with PostgreSQL, SQLAlchemy's dialect layer handles translation.
+* Upsert uses dialect-aware conflict handling when supported.
+* Unsupported dialects fall back to a transactional read-then-write path.
 
 Date / datetime handling
 ------------------------
@@ -40,12 +40,11 @@ from pathlib import Path
 from typing import Any, Generator, Generic, Mapping, TypeVar
 
 from pydantic import BaseModel, TypeAdapter, ValidationError
-from sqlalchemy import Column, MetaData, Table, delete, func, inspect, select, update
-from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+from sqlalchemy import Column, MetaData, Table, delete, func, select, update
 from sqlalchemy.engine import Connection
-from sqlalchemy.exc import IntegrityError, SQLAlchemyError
+from sqlalchemy.exc import IntegrityError
 
-from registers.db.engine import dispose_engine, get_engine
+from registers.db.engine import dialect_insert, dispose_engine, get_engine
 from registers.db.exceptions import (
     DuplicateKeyError,
     ImmutableFieldError,
@@ -56,6 +55,7 @@ from registers.db.exceptions import (
     UniqueConstraintError,
 )
 from registers.db.metadata import RegistryConfig
+from registers.db.operators import VALID_OPERATORS, is_iterable_value, parse_criterion, split_field_expr
 from registers.db.schema import SchemaManager
 from registers.db.security import hash_password, is_password_hash
 from registers.db.typing_utils import (
@@ -76,9 +76,9 @@ class DatabaseRegistry(Generic[ModelT]):
     SQLite-backed (and SQLAlchemy-compatible) persistence manager for a
     Pydantic model class.
 
-    Attach to a model with the ``@database_manager`` decorator::
+    Attach to a model with the ``@database_registry`` decorator::
 
-        @database_manager("app.db", table_name="users", key_field="id")
+        @database_registry("app.db", table_name="users", key_field="id")
         class User(BaseModel):
             id: int | None = None
             name: str
@@ -164,6 +164,14 @@ class DatabaseRegistry(Generic[ModelT]):
         """Add a column only if it doesn't already exist. Returns True if added."""
         return self._schema.ensure_column(column_name, annotation, nullable=nullable)
 
+    def rename_table(self, new_name: str) -> None:
+        """Rename the backing table through SchemaManager."""
+        self._schema.rename_table(new_name)
+
+    def column_names(self) -> list[str]:
+        """Return current column names from live DB inspection."""
+        return self._schema.column_names()
+
     # ------------------------------------------------------------------
     # Transactions
     # ------------------------------------------------------------------
@@ -191,14 +199,9 @@ class DatabaseRegistry(Generic[ModelT]):
         Use this when you explicitly want an error if the record already exists.
         """
         instance = self.model_cls(**data)
-        self._reject_explicit_autoincrement_key(instance)
-        values = self._prepare_insert_values(instance)
-        stmt = self._table.insert().values(**values)
-
         try:
             with self._engine.begin() as conn:
-                result = conn.execute(stmt)
-            return self._apply_generated_key(instance, result)
+                return self._create_with_conn(conn, instance)
         except IntegrityError as exc:
             raise self._classify_integrity_error(exc) from exc
 
@@ -217,26 +220,9 @@ class DatabaseRegistry(Generic[ModelT]):
         pre-check, eliminating read-then-write race conditions.
         """
         target = instance if instance is not None else self.model_cls(**data)
-        self._assert_immutable_key(target)
-        values = self._model_to_row(target)
-        key_value = values.get(self.key_field)
-
-        if self.config.autoincrement and key_value is None:
-            if self.config.unique_fields:
-                return self._upsert_on_unique_fields(target, values)
-            return self.create(**target.model_dump())
-
-        stmt = sqlite_insert(self._table).values(**values)
-        update_cols = {k: values[k] for k in values if k != self.key_field}
-        stmt = stmt.on_conflict_do_update(
-            index_elements=[self.key_field],
-            set_=update_cols,
-        )
-
         try:
             with self._engine.begin() as conn:
-                conn.execute(stmt)
-            return self._stamp_identity(target)
+                return self._upsert_with_conn(conn, target)
         except IntegrityError as exc:
             raise self._classify_integrity_error(exc) from exc
 
@@ -265,27 +251,29 @@ class DatabaseRegistry(Generic[ModelT]):
         self._assert_known_fields(updates)
         updates = self._normalize_write_mapping(updates)
 
-        stmt = update(self._table).values(**updates)
-        stmt = self._apply_where(stmt, criteria)
-
-        # `update_where` re-fetch is logically broken when the criteria field 
-        # is the one being updated, because the merged criteria+updates would 
-        # look for rows matching the new value, not the old one.The re-fetch 
-        # should use the key field of the affected rows, not the merged criteria. 
-        # The fix is to collect PKs before updating, then re-fetch by PK after.
-        affected_keys = [
-            getattr(r, self.key_field) for r in self.filter(**criteria)
-        ]
-
         try:
             with self._engine.begin() as conn:
+                stmt = update(self._table).values(**updates)
+                stmt = self._apply_where(stmt, criteria)
+
+                if getattr(conn.dialect, "update_returning", False):
+                    rows = conn.execute(stmt.returning(self._table)).mappings().all()
+                    return [self._row_to_model(row) for row in rows]
+
+                # Fallback for dialects without UPDATE ... RETURNING support.
+                key_column = self._table.c[self.key_field]
+                key_stmt = select(key_column)
+                key_stmt = self._apply_where(key_stmt, criteria)
+                affected_keys = conn.execute(key_stmt).scalars().all()
+                if not affected_keys:
+                    return []
+
                 conn.execute(stmt)
+                refresh_stmt = select(self._table).where(key_column.in_(affected_keys))
+                rows = conn.execute(refresh_stmt).mappings().all()
+                return [self._row_to_model(row) for row in rows]
         except IntegrityError as exc:
             raise self._classify_integrity_error(exc) from exc
-
-        # Re-fetch with merged criteria+updates to locate the modified rows
-        # return self.filter(**{**dict(criteria), **updates})
-        return [self.require(key) for key in affected_keys]
 
     def delete(self, key_value: Any) -> bool:
         """Delete the row with the given primary key. Returns True if deleted."""
@@ -302,6 +290,45 @@ class DatabaseRegistry(Generic[ModelT]):
         with self._engine.begin() as conn:
             result = conn.execute(stmt)
         return result.rowcount or 0
+
+    def bulk_create(self, records: list[Mapping[str, Any]]) -> list[ModelT]:
+        """Create multiple records atomically and return stamped models."""
+        if not records:
+            return []
+
+        instances = [self.model_cls(**record) for record in records]
+        values_list = [self._prepare_insert_values(instance) for instance in instances]
+
+        try:
+            with self._engine.begin() as conn:
+                supports_insert_returning = bool(
+                    getattr(conn.dialect, "insert_returning", False)
+                    and getattr(conn.dialect, "insert_executemany_returning", False)
+                )
+                if supports_insert_returning:
+                    stmt = self._table.insert().returning(self._table)
+                    rows = conn.execute(stmt, values_list).mappings().all()
+                    return [self._row_to_model(row) for row in rows]
+                return [self._create_with_conn(conn, instance) for instance in instances]
+        except IntegrityError as exc:
+            raise self._classify_integrity_error(exc) from exc
+
+    def bulk_upsert(self, records: list[Mapping[str, Any]]) -> list[ModelT]:
+        """Upsert multiple records atomically and return stamped models."""
+        if not records:
+            return []
+
+        targets = [self.model_cls(**record) for record in records]
+        persisted: list[ModelT] = []
+
+        try:
+            with self._engine.begin() as conn:
+                for target in targets:
+                    persisted.append(self._upsert_with_conn(conn, target))
+        except IntegrityError as exc:
+            raise self._classify_integrity_error(exc) from exc
+
+        return persisted
 
     # ------------------------------------------------------------------
     # Read operations
@@ -333,17 +360,26 @@ class DatabaseRegistry(Generic[ModelT]):
             )
         return record
 
-    def filter(self, limit: int | None = None, offset: int | None = None, **criteria: Any) -> list[ModelT]:
+    def filter(
+        self,
+        limit: int | None = None,
+        offset: int | None = None,
+        order_by: str | list[str] | tuple[str, ...] | None = None,
+        **criteria: Any,
+    ) -> list[ModelT]:
         """
         Return all rows matching *criteria*.
 
-        Supports optional *limit* and *offset* for pagination.
+        Supports optional *limit* and *offset* for pagination plus
+        ``order_by`` using ``field`` / ``-field`` syntax.
         """
         if criteria:
             self._assert_known_fields(criteria)
 
         stmt = select(self._table)
         stmt = self._apply_where(stmt, criteria)
+        if order_by is not None:
+            stmt = self._apply_order_by(stmt, order_by)
         if limit is not None:
             stmt = stmt.limit(limit)
         if offset is not None:
@@ -353,9 +389,9 @@ class DatabaseRegistry(Generic[ModelT]):
             rows = conn.execute(stmt).mappings().all()
         return [self._row_to_model(row) for row in rows]
 
-    def all(self) -> list[ModelT]:
+    def all(self, order_by: str | list[str] | tuple[str, ...] | None = None) -> list[ModelT]:
         """Return every row as validated Pydantic models."""
-        return self.filter()
+        return self.filter(order_by=order_by)
 
     def get_all(self) -> list[ModelT]:
         """Alias for ``all()``."""
@@ -381,25 +417,24 @@ class DatabaseRegistry(Generic[ModelT]):
         with self._engine.begin() as conn:
             return conn.execute(stmt).scalar_one() or 0
 
-    def first(self, **criteria: Any) -> ModelT | None:
-        """Return the first row by insertion order, optionally filtered."""
-        rows = self.filter(limit=1, **criteria)
+    def first(
+        self,
+        order_by: str | list[str] | tuple[str, ...] | None = None,
+        **criteria: Any,
+    ) -> ModelT | None:
+        """Return the first row for the given filter and sort order."""
+        rows = self.filter(limit=1, order_by=order_by, **criteria)
         return rows[0] if rows else None
 
-    def last(self, **criteria: Any) -> ModelT | None:
-        """Return the last row ordered by primary key descending."""
-        if criteria:
-            self._assert_known_fields(criteria)
-
-        stmt = (
-            select(self._table)
-            .order_by(self._table.c[self.key_field].desc())
-            .limit(1)
-        )
-        stmt = self._apply_where(stmt, criteria)
-        with self._engine.begin() as conn:
-            rows = conn.execute(stmt).mappings().all()
-        return self._row_to_model(rows[0]) if rows else None
+    def last(
+        self,
+        order_by: str | list[str] | tuple[str, ...] | None = None,
+        **criteria: Any,
+    ) -> ModelT | None:
+        """Return the last row for the given filter and sort order."""
+        reverse_order = self._reverse_order_by(order_by or self.key_field)
+        rows = self.filter(limit=1, order_by=reverse_order, **criteria)
+        return rows[0] if rows else None
 
     def refresh(self, instance: ModelT) -> ModelT:
         """
@@ -464,12 +499,35 @@ class DatabaseRegistry(Generic[ModelT]):
     # ------------------------------------------------------------------
 
     def _apply_where(self, stmt: Any, criteria: Mapping[str, Any]) -> Any:
-        for field, value in criteria.items():
-            if isinstance(value, (list, tuple, set, frozenset)):
-                stmt = stmt.where(self._table.c[field].in_(list(value)))
-            else:
-                stmt = stmt.where(self._table.c[field] == value)
+        for field_expr, value in criteria.items():
+            stmt = stmt.where(parse_criterion(self._table, field_expr, value))
         return stmt
+
+    def _apply_order_by(
+        self,
+        stmt: Any,
+        order_by: str | list[str] | tuple[str, ...],
+    ) -> Any:
+        fields = [order_by] if isinstance(order_by, str) else list(order_by)
+        for field in fields:
+            descending = field.startswith("-")
+            field_name = field[1:] if descending else field
+            if field_name not in self.model_cls.model_fields:
+                raise InvalidQueryError(f"Unknown sort field '{field_name}'.")
+            column = self._table.c[field_name]
+            stmt = stmt.order_by(column.desc() if descending else column.asc())
+        return stmt
+
+    def _reverse_order_by(
+        self,
+        order_by: str | list[str] | tuple[str, ...],
+    ) -> str | list[str]:
+        fields = [order_by] if isinstance(order_by, str) else list(order_by)
+        reversed_fields = [
+            field[1:] if field.startswith("-") else f"-{field}"
+            for field in fields
+        ]
+        return reversed_fields[0] if isinstance(order_by, str) else reversed_fields
 
     def _normalize_lookup(self, args: tuple[Any, ...], criteria: Mapping[str, Any]) -> dict[str, Any]:
         if args and criteria:
@@ -482,16 +540,42 @@ class DatabaseRegistry(Generic[ModelT]):
 
     def _assert_known_fields(self, fields: Any) -> None:
         model_fields = self.model_cls.model_fields
-        unknown = [f for f in fields if f not in model_fields]
+        unknown: list[str] = []
+        normalized_fields: list[tuple[str, str, Any]] = []
+
+        for field_expr, value in fields.items():
+            field_name, operator = split_field_expr(field_expr)
+            if field_name not in model_fields:
+                unknown.append(field_name)
+                continue
+            if operator not in VALID_OPERATORS:
+                raise InvalidQueryError(
+                    f"Unknown query operator '{operator}' for field '{field_name}'."
+                )
+            normalized_fields.append((field_name, operator, value))
+
         if unknown:
             raise InvalidQueryError(
                 f"Unknown field(s) {unknown!r} on model '{self.model_cls.__name__}'."
             )
 
-        for field_name, value in fields.items():
+        for field_name, operator, value in normalized_fields:
             try:
                 adapter = TypeAdapter(model_fields[field_name].annotation)
-                if isinstance(value, (list, tuple, set, frozenset)):
+                if operator == "is_null":
+                    TypeAdapter(bool).validate_python(value)
+                elif operator == "between":
+                    if not isinstance(value, (list, tuple)) or len(value) != 2:
+                        raise InvalidQueryError(
+                            f"Field '{field_name}__between' requires a two-item tuple or list."
+                        )
+                    adapter.validate_python(value[0])
+                    adapter.validate_python(value[1])
+                elif operator in {"in", "not_in"}:
+                    if not is_iterable_value(value):
+                        raise InvalidQueryError(
+                            f"Field '{field_name}__{operator}' requires an iterable of values."
+                        )
                     for item in value:
                         adapter.validate_python(item)
                 else:
@@ -522,6 +606,13 @@ class DatabaseRegistry(Generic[ModelT]):
         if self.config.autoincrement and values.get(self.key_field) is None:
             values.pop(self.key_field, None)
         return values
+
+    def _create_with_conn(self, conn: Connection, instance: ModelT) -> ModelT:
+        self._reject_explicit_autoincrement_key(instance)
+        values = self._prepare_insert_values(instance)
+        stmt = self._table.insert().values(**values)
+        result = conn.execute(stmt)
+        return self._apply_generated_key(instance, result)
 
     def _apply_generated_key(self, instance: ModelT, result: Any) -> ModelT:
         if self.config.autoincrement and getattr(instance, self.key_field, None) is None:
@@ -554,33 +645,122 @@ class DatabaseRegistry(Generic[ModelT]):
         object.__setattr__(instance, _ORIGINAL_KEY_ATTR, getattr(instance, self.key_field, None))
         return instance
 
-    def _upsert_on_unique_fields(self, target: ModelT, values: dict[str, Any]) -> ModelT:
+    def _upsert_with_conn(self, conn: Connection, target: ModelT) -> ModelT:
+        self._assert_immutable_key(target)
+        values = self._model_to_row(target)
+        key_value = values.get(self.key_field)
+
+        if self.config.autoincrement and key_value is None:
+            if self.config.unique_fields:
+                return self._upsert_on_unique_fields(conn, target, values)
+            return self._create_with_conn(conn, target)
+
+        key_value = self._execute_upsert(conn, values, [self.key_field])
+        if key_value is not None and getattr(target, self.key_field, None) is None:
+            object.__setattr__(target, self.key_field, key_value)
+        return self._stamp_identity(target)
+
+    def _upsert_on_unique_fields(
+        self,
+        conn: Connection,
+        target: ModelT,
+        values: dict[str, Any],
+    ) -> ModelT:
         insert_values = dict(values)
         insert_values.pop(self.key_field, None)
 
-        stmt = sqlite_insert(self._table).values(**insert_values)
-        update_cols = {
-            key: value
-            for key, value in insert_values.items()
-            if key != self.key_field
-        }
-        stmt = stmt.on_conflict_do_update(
-            index_elements=list(self.config.unique_fields),
-            set_=update_cols,
-        )
-
-        try:
-            with self._engine.begin() as conn:
-                conn.execute(stmt)
-        except IntegrityError as exc:
-            raise self._classify_integrity_error(exc) from exc
-
+        key_value = self._execute_upsert(conn, insert_values, self.config.unique_fields)
         lookup = {field: insert_values[field] for field in self.config.unique_fields}
-        refreshed = self.require(**lookup)
+        refreshed = self._row_from_connection(conn, **lookup)
+        if refreshed is None:
+            refreshed = self.require(**lookup)
 
         for field_name in type(target).model_fields:
             object.__setattr__(target, field_name, getattr(refreshed, field_name))
+        if key_value is not None and getattr(target, self.key_field, None) is None:
+            object.__setattr__(target, self.key_field, key_value)
         return self._stamp_identity(target)
+
+    def _execute_upsert(
+        self,
+        conn: Connection,
+        values: dict[str, Any],
+        conflict_fields: tuple[str, ...] | list[str],
+    ) -> Any:
+        stmt = self._build_upsert_statement(values, conflict_fields)
+        if stmt is not None:
+            result = conn.execute(stmt)
+            pks = list(result.inserted_primary_key or ())
+            if pks:
+                return pks[0]
+            return values.get(self.key_field)
+        return self._upsert_fallback_with_conn(conn, values, conflict_fields)
+
+    def _build_upsert_statement(
+        self,
+        values: dict[str, Any],
+        conflict_fields: tuple[str, ...] | list[str],
+    ) -> Any:
+        insert_stmt = dialect_insert(self._engine, self._table)
+        if insert_stmt is None:
+            return None
+
+        update_cols = {key: value for key, value in values.items() if key != self.key_field}
+        stmt = insert_stmt.values(**values)
+        dialect_name = self._engine.dialect.name
+
+        if dialect_name in {"mysql", "mariadb"}:
+            return stmt.on_duplicate_key_update(**update_cols)
+        return stmt.on_conflict_do_update(
+            index_elements=list(conflict_fields),
+            set_=update_cols,
+        )
+
+    def _upsert_fallback_with_conn(
+        self,
+        conn: Connection,
+        values: dict[str, Any],
+        conflict_fields: tuple[str, ...] | list[str],
+    ) -> Any:
+        lookup = {
+            field: values[field]
+            for field in conflict_fields
+            if field in values and values[field] is not None
+        }
+        existing = self._row_from_connection(conn, lock_for_update=True, **lookup) if lookup else None
+        if existing is not None:
+            updates = {key: value for key, value in values.items() if key != self.key_field}
+            if updates:
+                stmt = (
+                    update(self._table)
+                    .where(self._table.c[self.key_field] == getattr(existing, self.key_field))
+                    .values(**updates)
+                )
+                conn.execute(stmt)
+            return getattr(existing, self.key_field)
+
+        insert_values = dict(values)
+        if self.config.autoincrement and insert_values.get(self.key_field) is None:
+            insert_values.pop(self.key_field, None)
+        result = conn.execute(self._table.insert().values(**insert_values))
+        pks = list(result.inserted_primary_key or ())
+        if pks:
+            return pks[0]
+        return insert_values.get(self.key_field)
+
+    def _row_from_connection(
+        self,
+        conn: Connection,
+        *,
+        lock_for_update: bool = False,
+        **criteria: Any,
+    ) -> ModelT | None:
+        stmt = select(self._table).limit(1)
+        stmt = self._apply_where(stmt, criteria)
+        if lock_for_update:
+            stmt = stmt.with_for_update()
+        row = conn.execute(stmt).mappings().first()
+        return self._row_to_model(row) if row is not None else None
 
     def _normalize_model_for_write(self, model: ModelT) -> None:
         if _PASSWORD_FIELD not in type(model).model_fields:

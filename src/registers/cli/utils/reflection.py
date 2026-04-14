@@ -1,5 +1,5 @@
 """
-cli_registry.utils.reflection
+registers.cli.utils.reflection
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
 Thin wrappers around ``inspect`` for extracting parameter metadata from
 command handler signatures.

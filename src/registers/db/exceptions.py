@@ -1,6 +1,6 @@
 """
-db_registry.errors
-~~~~~~~~~~~~~~~~~~
+registers.db.exceptions
+~~~~~~~~~~~~~~~~~~~~~~~
 All package-defined exceptions in one place.
 
 Hierarchy
@@ -21,7 +21,7 @@ from __future__ import annotations
 
 
 class RegistryError(Exception):
-    """Base class for all db_registry exceptions."""
+    """Base class for all registers.db exceptions."""
 
 
 class ConfigurationError(RegistryError):

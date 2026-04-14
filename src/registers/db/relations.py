@@ -1,6 +1,6 @@
 """
-db_registry.relations
-~~~~~~~~~~~~~~~~~~~~~
+registers.db.relations
+~~~~~~~~~~~~~~~~~~~~~~
 Explicit, lazy-loaded relationship descriptors.
 
 Usage pattern
@@ -9,15 +9,15 @@ Relationships must be **assigned after** the class body is executed.
 This is necessary because Pydantic v2's metaclass validates the class body
 at class-creation time and rejects unannotated non-field attributes.
 
-By assigning after the class (and after ``@database_manager`` decoration),
+By assigning after the class (and after ``@database_registry`` decoration),
 Pydantic's metaclass has already run and we can safely attach descriptors::
 
-    @database_manager("app.db", table_name="authors", key_field="id")
+    @database_registry("app.db", table_name="authors", key_field="id")
     class Author(BaseModel):
         id: int | None = None
         name: str
 
-    @database_manager("app.db", table_name="posts", key_field="id")
+    @database_registry("app.db", table_name="posts", key_field="id")
     class Post(BaseModel):
         id: int | None = None
         author_id: int
@@ -88,7 +88,7 @@ class _BaseRelationship:
         if manager is None:
             raise RelationshipError(
                 f"Model '{model_cls.__name__}' has no '{manager_attr}' manager. "
-                "Make sure it is decorated with @database_manager before "
+                "Make sure it is decorated with @database_registry before "
                 f"the relationship '{self._attr_name}' is accessed."
             )
         return manager
@@ -107,12 +107,12 @@ class HasMany(_BaseRelationship):
 
     Example::
 
-        @database_manager("app.db", table_name="authors", key_field="id")
+        @database_registry("app.db", table_name="authors", key_field="id")
         class Author(BaseModel):
             id: int | None = None
             name: str
 
-        @database_manager("app.db", table_name="posts", key_field="id")
+        @database_registry("app.db", table_name="posts", key_field="id")
         class Post(BaseModel):
             id: int | None = None
             author_id: int
@@ -218,7 +218,7 @@ class HasManyThrough(_BaseRelationship):
 
     Example::
 
-        @database_manager("app.db", table_name="post_tags", key_field="id")
+        @database_registry("app.db", table_name="post_tags", key_field="id")
         class PostTag(BaseModel):
             id: int | None = None
             post_id: int

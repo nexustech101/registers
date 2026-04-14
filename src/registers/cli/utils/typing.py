@@ -1,5 +1,5 @@
 """
-cli_registry.utils.typing
+registers.cli.utils.typing
 ~~~~~~~~~~~~~~~~~~~~~~
 Helpers for resolving Python type annotations into argparse-compatible
 concrete types. Kept isolated so the parser stays readable.

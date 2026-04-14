@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "registers"
-version = "2.1.2"
+version = "2.2.0"
 description = "Decorator-driven persistence registry for Pydantic models and CLI tooling"
 readme = { file = "README.md", content-type = "text/markdown" }
 requires-python = ">=3.10"
@@ -51,3 +51,6 @@ exclude = ["*.tests*", "*.tests.*"]
 
 [tool.setuptools]
 package-dir = {"" = "src"}  # Container for package modules
+
+[tool.setuptools.package-data]
+registers = ["py.typed"]

@@ -1,5 +1,5 @@
 """
-db_registry.schema
+registers.db.schema
 ~~~~~~~~~~~~~~~~~~
 Safe, additive schema evolution without a full migration framework.
 

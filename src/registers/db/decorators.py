@@ -1,6 +1,6 @@
 """
-db_registry.registers
-~~~~~~~~~~~~~~~~~~~~~~
+registers.db.decorators
+~~~~~~~~~~~~~~~~~~~~~~~
 ``@database_registry`` — the single public decoration entrypoint.
 
 Architecture change from v0.1

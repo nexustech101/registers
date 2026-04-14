@@ -1,830 +1,290 @@
-# registers.db
+# registers.db Usage
 
-Decorator-driven persistence for Pydantic models. Attach a SQLite-backed manager to any `BaseModel` and get a full typed CRUD API with zero boilerplate.
+`registers.db` is a lightweight persistence layer for Pydantic models built on SQLAlchemy.
+The goal is simple: decorate a model, then use `Model.objects` for CRUD.
 
-Use `database_registry` in new code. Earlier drafts of this guide referred to the decorator as `database_manager`; the tested public API name is `database_registry`.
+This guide is designed to get you productive in about 10 minutes.
+
+## Install
+
+```bash
+pip install registers
+```
+
+## 1. Quick Start
 
 ```python
 from pydantic import BaseModel
 from registers.db import database_registry
 
-@database_registry("app.db", table_name="users", unique_fields=["email"])
+
+@database_registry(
+    "sqlite:///app.db",
+    table_name="users",
+    unique_fields=["email"],
+)
 class User(BaseModel):
     id: int | None = None
     email: str
     name: str
 
-user = User.objects.create(name="Alice", email="alice@example.com")
-# → User(id=1, name='Alice', email='alice@example.com')
-```
-
----
-
-## Contents
-
-1. [Installation](#installation)
-2. [Quick Start](#quick-start)
-3. [Defining Models with db_field](#defining-models-with-db_field)
-4. [Decorator Options](#decorator-options)
-5. [Manager API (CRUD)](#manager-api-crud)
-6. [Instance Methods](#instance-methods)
-7. [Querying](#querying)
-8. [Schema Management](#schema-management)
-9. [Schema Evolution](#schema-evolution)
-10. [Relationships](#relationships)
-11. [Foreign Keys](#foreign-keys)
-12. [Error Handling](#error-handling)
-13. [Transactions](#transactions)
-14. [Type Mapping](#type-mapping)
-15. [FastAPI Integration](#fastapi-integration)
-16. [CLI Integration](#cli-integration)
-17. [Direct Registry Usage](#direct-registry-usage)
-18. [Engine & Lifecycle](#engine--lifecycle)
-
----
-
-## Installation
-
-```bash
-pip install registers.db
-# or from source:
-pip install -e .
-```
-
-**Requirements:** Python 3.10+, Pydantic 2.x, SQLAlchemy 2.x.
-
----
-
-## Quick Start
-
-```python
-from pydantic import BaseModel
-from registers.db import database_registry
-
-@database_registry("sqlite:///blog.db", table_name="posts", unique_fields=["slug"])
-class Post(BaseModel):
-    id: int | None = None
-    slug: str
-    title: str
-    body: str
-    published: bool = False
 
 # Create
-post = Post.objects.create(title="Hello World", slug="hello-world", body="...")
+user = User.objects.create(email="alice@example.com", name="Alice")
 
 # Read
-post = Post.objects.get(1)
-post = Post.objects.get(slug="hello-world")
-post = Post.objects.require(1)              # raises if missing
+same_user = User.objects.require(user.id)
 
 # Update
-post.title = "Hello, World!"
-post.save()
+same_user.name = "Alicia"
+same_user.save()
 
 # Delete
-post.delete()
-
-# Query
-drafts    = Post.objects.filter(published=False)
-all_posts = Post.objects.all()
-count     = Post.objects.count()
+same_user.delete()
 ```
 
-### Primary key conventions
+## 2. Primary Key Rules
 
-- `id: int | None = None` means a database-managed autoincrement primary key.
-- `id: int` means a manual primary key and must be provided explicitly on create.
-- `create(id=...)` is rejected for database-managed keys.
-- Persisted primary keys are immutable once a record exists.
+Keep this model contract in mind:
 
----
+- `id: int | None = None` means database-managed autoincrement primary key.
+- `id: int` means manual primary key (you provide it on create).
+- For database-managed keys, passing `id=` to `create()` raises `InvalidPrimaryKeyAssignmentError`.
+- Persisted primary keys are immutable; changing them then calling `save()` raises `ImmutableFieldError`.
 
-## Defining Models with `db_field`
-
-`db_field()` is a typed wrapper around Pydantic's `Field()` that lets you declare
-database constraints directly on the field — alongside the field definition
-rather than scattered across decorator arguments.
+## 3. Decorator Options
 
 ```python
-from registers.db import db_field
-
-field = db_field(
-    primary_key=False,    # bool       — marks this field as the primary key
-    autoincrement=False,  # bool       — database generates this key (integer only)
-    unique=False,         # bool       — adds a UNIQUE constraint
-    index=False,          # bool       — adds a database index
-    foreign_key=None,     # str | None — e.g. "authors.id" for a single FK
-    default=...,          # passed through to Pydantic's Field()
-    **pydantic_kwargs,    # any other Field() arguments are forwarded
+@database_registry(
+    database_url="sqlite:///app.db",  # or "app.db"
+    table_name="users",               # default is model-name-based
+    key_field="id",                   # default: "id"
+    manager_attr="objects",           # default: "objects"
+    auto_create=True,                 # default: True
+    autoincrement=False,              # auto-inferred for id: int | None
+    unique_fields=["email"],          # optional conflict target(s)
 )
-```
-
-All parameters are optional. `db_field()` without arguments behaves identically
-to Pydantic's `Field()`.
-
-### Autoincrement primary keys
-
-```python
-@database_manager("app.db", table_name="comments")
-class Comment(BaseModel):
-    id: int | None = db_field(primary_key=True, autoincrement=True, default=None)
-    body: str
-    author: str
-
-c = Comment.objects.create(body="Great post!", author="Bob")
-print(c.id)  # → 1  (generated by the database)
-```
-
-### Default autoincrement behaviour
-
-When a model has an `id: int | None` field with no `db_field` annotation, the
-decorator infers `primary_key=True, autoincrement=True` automatically. Both
-forms below are identical in behaviour:
-
-```python
-# Explicit
-class Explicit(BaseModel):
-    id: int | None = db_field(primary_key=True, autoincrement=True, default=None)
-    name: str
-
-# Shorthand — autoincrement inferred from field name and type
-class Shorthand(BaseModel):
-    id: int | None = None
-    name: str
-```
-
-To use a manual integer primary key without autoincrement:
-
-```python
-class Widget(BaseModel):
-    id: int = db_field(primary_key=True, autoincrement=False)
-    name: str
-
-Widget.objects.create(id=42, name="Sprocket")
-```
-
-To opt out of inference for a non-`id` key field, pass `key_field` to the decorator:
-
-```python
-@database_manager("app.db", key_field="sku")
-class Product(BaseModel):
-    sku: str    # plain string key — no autoincrement inferred
-    name: str
-    price: float
-```
-
-### Unique constraints
-
-Declare uniqueness on the field itself rather than in the decorator:
-
-```python
-@database_manager("app.db", table_name="users")
 class User(BaseModel):
-    id: int | None = db_field(primary_key=True, default=None)
-    email: str     = db_field(unique=True)
-    username: str  = db_field(unique=True)
+    id: int | None = None
+    email: str
     name: str
 ```
 
-### Mixing `db_field` and plain fields
+## 4. CRUD API
 
-`db_field` is opt-in per field. Fields without it are treated as ordinary columns
-with types inferred from their annotation:
+All persistence methods live on `Model.objects`.
 
 ```python
-@database_manager("app.db", table_name="events")
-class Event(BaseModel):
-    id: int | None = db_field(primary_key=True, default=None)
-    name: str      = db_field(unique=True)
-    location: str                   # plain field
-    attendees: int  = 0             # plain field with default
-    archived: bool  = False
+# Strict insert
+user = User.objects.create(email="alice@example.com", name="Alice")
+user = User.objects.strict_create(email="bob@example.com", name="Bob")
+
+# Upsert by primary key
+user = User.objects.upsert(id=1, email="alice@example.com", name="Alice")
+
+# Upsert by unique fields when id is absent
+user = User.objects.upsert(email="alice@example.com", name="Alicia")
+
+# Read
+one = User.objects.get(1)
+one = User.objects.get(email="alice@example.com")
+must_exist = User.objects.require(email="alice@example.com")
+
+# Query helpers
+rows = User.objects.filter(name="Alicia")
+rows = User.objects.all()
+exists = User.objects.exists(email="alice@example.com")
+count = User.objects.count()
+first = User.objects.first()
+last = User.objects.last()
+
+# Update/delete helpers
+updated = User.objects.update_where({"name": "Alicia"}, name="Alice")
+deleted_count = User.objects.delete_where(name="Alice")
+deleted_bool = User.objects.delete(1)
 ```
 
----
-
-## Decorator Options
-
-The decorator handles **environmental** configuration — where to store data and
-how to name things. Schema configuration (keys, constraints, foreign keys) belongs
-on the fields via `db_field`.
+Injected instance methods:
 
 ```python
-@database_manager(
-    database_url,   # str | Path | None
-    *,
-    table_name,     # str | None
-    key_field,      # str  (default: "id")
-    manager_attr,   # str  (default: "objects")
-    auto_create,    # bool (default: True)
+user.save()
+user.refresh()
+user.delete()
+```
+
+## 5. Filtering, Operators, Sorting, Pagination
+
+Supported filter operators use `field__operator=value` syntax:
+
+- `eq` (default), `not`
+- `gt`, `gte`, `lt`, `lte`
+- `like`, `ilike`
+- `in`, `not_in`
+- `is_null`
+- `between`
+- `contains`, `startswith`, `endswith`
+
+```python
+User.objects.filter(age__gte=18, age__lt=65)
+User.objects.filter(name__ilike="ali%")
+User.objects.filter(status__in=["active", "trial"])
+User.objects.filter(deleted_at__is_null=True)
+User.objects.filter(score__between=(70, 100))
+```
+
+Sorting:
+
+```python
+User.objects.filter(order_by="name")
+User.objects.filter(order_by="-created_at")
+User.objects.all(order_by=["role", "-name"])
+User.objects.first(order_by="created_at")
+User.objects.last(order_by="created_at")
+```
+
+Pagination:
+
+```python
+page = User.objects.filter(order_by="id", limit=20, offset=40)
+```
+
+## 6. Bulk Operations
+
+```python
+users = User.objects.bulk_create(
+    [
+        {"email": "a@example.com", "name": "A"},
+        {"email": "b@example.com", "name": "B"},
+    ]
+)
+
+upserted = User.objects.bulk_upsert(
+    [
+        {"id": 1, "email": "a@example.com", "name": "A Updated"},
+        {"id": 3, "email": "c@example.com", "name": "C"},
+    ]
 )
 ```
 
-| Option | Type | Default | Description |
-|---|---|---|---|
-| `database_url` | `str \| Path \| None` | `<tablename>.db` | SQLAlchemy URL or bare file path. |
-| `table_name` | `str \| None` | Snake-case plural of model name | SQL table name. `User` → `users`. |
-| `key_field` | `str` | `"id"` | Overrides field-level `primary_key=True` declaration. |
-| `manager_attr` | `str` | `"objects"` | Attribute name for the manager: `User.objects`. |
-| `auto_create` | `bool` | `True` | Create the table at decoration time if it doesn't exist. |
+## 7. Schema and Migration Helpers
 
-> `autoincrement` and `unique_fields` are supported decorator arguments in the
-> current implementation. For the common path, plain type annotations plus
-> decorator options are enough: use `id: int | None = None` for DB-managed keys
-> and `id: int` for manual keys.
-
-### Custom manager attribute
+Class-level helpers:
 
 ```python
-@database_manager("app.db", manager_attr="db")
-class Setting(BaseModel):
-    id: int | None = db_field(primary_key=True, default=None)
-    objects: str   # safe — no longer conflicts with manager
-
-Setting.db.create(objects="some value")
+User.create_schema()    # idempotent
+User.schema_exists()
+User.truncate()         # delete rows, keep table
+User.drop_schema()      # drop table
 ```
 
----
-
-## Manager API (CRUD)
-
-All persistence operations live on `Model.objects` (or your custom `manager_attr`).
-
-### `create(**data) → Model`
-
-Strict INSERT. Raises `DuplicateKeyError` on primary key collision or
-`UniqueConstraintError` on a unique field violation. For models using a
-database-managed key (`id: int | None = None`), passing `id=` explicitly raises
-`InvalidPrimaryKeyAssignmentError`.
+Manager-level evolution helpers:
 
 ```python
-user = User.objects.create(name="Alice", email="alice@example.com")
+User.objects.add_column("timezone", str, nullable=True)
+User.objects.ensure_column("timezone", str, nullable=True)  # returns bool
+User.objects.column_names()
+User.objects.rename_table("users_archive")
 ```
 
-### `strict_create(**data) → Model`
+For startup-safe migrations, prefer `ensure_column(...)`.
 
-Alias for `create()` that signals strict-insert intent explicitly.
+## 8. Relationships
 
-```python
-user = User.objects.strict_create(name="Alice", email="alice@example.com")
-```
-
-### `upsert(**data) → Model`
-
-INSERT if the primary key is new, UPDATE if it already exists. Atomic — uses
-`INSERT … ON CONFLICT DO UPDATE` with no separate pre-check.
-
-If no primary key is supplied and the registry has `unique_fields`, those unique fields are used as the conflict target.
-
-```python
-User.objects.upsert(id=1, name="Alice", email="alice@example.com")  # insert
-User.objects.upsert(id=1, name="Alicia", email="alice@example.com") # update
-User.objects.upsert(name="Alicia", email="alice@example.com")       # upsert by unique field
-```
-
----
-
-## Instance Methods
-
-Three methods are injected onto every instance by the decorator.
-
-### `instance.save() → self`
-
-Persists the current instance using upsert semantics. Mutates and returns `self`.
-Primary keys are immutable after persistence; mutating the PK and then calling
-`save()` raises `ImmutableFieldError`.
-
-```python
-user = User.objects.require(1)
-user.name = "Alicia"
-user.save()
-```
-
-### `instance.delete() → bool`
-
-Deletes this instance's row. Returns `True` if deleted.
-
-```python
-user = User.objects.require(1)
-user.delete()  # → True
-```
-
-### `instance.refresh() → Model`
-
-Returns a fresh copy re-fetched from the database.
-
-```python
-fresh_user = user.refresh()
-```
-
----
-
-## Querying
-
-### `get(*args, **criteria) → Model | None`
-
-```python
-user = User.objects.get(1)                  # by primary key
-user = User.objects.get(email="a@x.com")    # by field
-user = User.objects.get(999)                # → None if not found
-```
-
-### `require(*args, **criteria) → Model`
-
-Like `get()`, raises `RecordNotFoundError` instead of returning `None`.
-
-```python
-user = User.objects.require(1)
-user = User.objects.require(email="a@x.com")
-```
-
-### `filter(limit=None, offset=None, **criteria) → list[Model]`
-
-```python
-admins     = User.objects.filter(role="admin")
-first_page = User.objects.filter(limit=20, offset=0)
-next_page  = User.objects.filter(limit=20, offset=20)
-```
-
-### `all() → list[Model]`
-
-```python
-all_users = User.objects.all()
-```
-
-### `exists(**criteria) → bool`
-
-```python
-if User.objects.exists(email="alice@example.com"):
-    print("Email already taken")
-```
-
-### `count(**criteria) → int`
-
-```python
-total  = User.objects.count()
-admins = User.objects.count(role="admin")
-```
-
-### `first / last`
-
-```python
-oldest = User.objects.first()
-newest = User.objects.last()
-```
-
-### `update_where(criteria, **updates) → list[Model]`
-
-```python
-updated = User.objects.update_where({"role": "user"}, role="admin")
-```
-
-### `delete_where(**criteria) → int`
-
-```python
-deleted = User.objects.delete_where(role="banned")
-```
-
----
-
-## Schema Management
-
-```python
-if not User.schema_exists():
-    User.create_schema()
-
-User.drop_schema()   # irreversible
-User.truncate()      # delete all rows, keep table
-```
-
----
-
-## Schema Evolution
-
-### `ensure_column(name, annotation, *, nullable=True) → bool`
-
-Idempotent — safe to call on every startup.
-
-```python
-def run_migrations():
-    User.objects.ensure_column("avatar_url", str)
-    Post.objects.ensure_column("view_count", int)
-```
-
-### `add_column(name, annotation, *, nullable=True)`
-
-Raises `MigrationError` if the column already exists.
-
----
-
-## Relationships
-
-Declared using descriptor objects **assigned after** both model classes are decorated.
-
-```python
-from registers.db import HasMany, BelongsTo, HasManyThrough
-
-Author.posts = HasMany(Post, foreign_key="author_id")
-Post.author  = BelongsTo(Author, local_key="author_id")
-Post.tags    = HasManyThrough(Tag, through=PostTag,
-                              source_key="post_id", target_key="tag_id")
-```
-
-All relationships are lazy-loaded and read-only through the descriptor.
-To create related records, use the related model's manager directly.
-
-### `HasMany` — one-to-many
-
-```python
-author = Author.objects.require(1)
-posts  = author.posts   # → list[Post]
-```
-
-### `BelongsTo` — many-to-one
-
-```python
-post   = Post.objects.require(1)
-author = post.author    # → Author | None
-```
-
-### `HasManyThrough` — many-to-many
-
-```python
-post = Post.objects.require(1)
-tags = post.tags        # → list[Tag]
-```
-
----
-
-## Foreign Keys
-
-### Single foreign key
-
-Declared on the field with `db_field(foreign_key="table.column")`:
-
-```python
-@database_manager("app.db", table_name="orders")
-class Order(BaseModel):
-    id: int | None   = db_field(primary_key=True, default=None)
-    customer_id: int = db_field(foreign_key="customers.id")
-    total: float
-```
-
-Generates:
-```sql
-CREATE TABLE orders (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    customer_id INTEGER NOT NULL REFERENCES customers(id),
-    total       REAL    NOT NULL
-);
-```
-
-### Multiple foreign keys on one model
-
-```python
-@database_manager("app.db", table_name="order_items")
-class OrderItem(BaseModel):
-    id: int | None  = db_field(primary_key=True, default=None)
-    order_id: int   = db_field(foreign_key="orders.id")
-    product_id: int = db_field(foreign_key="products.id")
-    quantity: int
-    unit_price: float
-```
-
-### Composite foreign keys
-
-When the referenced table has a composite primary key, declare the constraint at
-the model level using `model_config`:
-
-```python
-from pydantic import ConfigDict
-
-@database_manager("app.db", table_name="shipment_items")
-class ShipmentItem(BaseModel):
-    model_config = ConfigDict(json_schema_extra={
-        "db_composite_fk": [
-            {
-                "columns":    ["order_id", "product_id"],
-                "references": ["order_items.order_id", "order_items.product_id"],
-            }
-        ]
-    })
-
-    id: int | None = db_field(primary_key=True, default=None)
-    order_id: int
-    product_id: int
-    shipped_qty: int
-```
-
-Generates a table-level `FOREIGN KEY (order_id, product_id) REFERENCES order_items(order_id, product_id)`.
-
-### Nullable foreign keys
-
-An optional relationship — the column is nullable and `BelongsTo` returns `None`
-when absent:
-
-```python
-class Post(BaseModel):
-    id: int | None        = db_field(primary_key=True, default=None)
-    author_id: int | None = db_field(foreign_key="authors.id", default=None)
-    title: str
-
-Post.author = BelongsTo(Author, local_key="author_id")
-
-orphan = Post.objects.create(author_id=None, title="Draft")
-print(orphan.author)   # → None
-```
-
-### Full ecommerce schema
+Relationships are descriptors assigned after model decoration.
 
 ```python
 from pydantic import BaseModel
-from registers.db import database_manager, db_field, HasMany, BelongsTo, HasManyThrough
+from registers.db import database_registry, HasMany, BelongsTo, HasManyThrough
 
-DB = "ecommerce.db"
+DB = "sqlite:///app.db"
 
-@database_manager(DB, table_name="customers")
-class Customer(BaseModel):
-    id: int | None = db_field(primary_key=True, default=None)
-    email: str     = db_field(unique=True)
+@database_registry(DB, table_name="authors")
+class Author(BaseModel):
+    id: int | None = None
     name: str
 
-@database_manager(DB, table_name="products")
-class Product(BaseModel):
-    id: int | None = db_field(primary_key=True, default=None)
-    sku: str       = db_field(unique=True)
+@database_registry(DB, table_name="posts")
+class Post(BaseModel):
+    id: int | None = None
+    author_id: int
+    title: str
+
+@database_registry(DB, table_name="tags")
+class Tag(BaseModel):
+    id: int | None = None
     name: str
-    price: float
 
-@database_manager(DB, table_name="categories")
-class Category(BaseModel):
-    id: int | None = db_field(primary_key=True, default=None)
-    name: str      = db_field(unique=True)
+@database_registry(DB, table_name="post_tags")
+class PostTag(BaseModel):
+    id: int | None = None
+    post_id: int
+    tag_id: int
 
-@database_manager(DB, table_name="product_categories")
-class ProductCategory(BaseModel):
-    id: int | None   = db_field(primary_key=True, default=None)
-    product_id: int  = db_field(foreign_key="products.id")
-    category_id: int = db_field(foreign_key="categories.id")
-
-@database_manager(DB, table_name="orders")
-class Order(BaseModel):
-    id: int | None   = db_field(primary_key=True, default=None)
-    customer_id: int = db_field(foreign_key="customers.id")
-    total: float     = 0.0
-
-@database_manager(DB, table_name="order_items")
-class OrderItem(BaseModel):
-    id: int | None  = db_field(primary_key=True, default=None)
-    order_id: int   = db_field(foreign_key="orders.id")
-    product_id: int = db_field(foreign_key="products.id")
-    quantity: int
-    unit_price: float
-
-# Wire relationships
-Customer.orders    = HasMany(Order, foreign_key="customer_id")
-Order.customer     = BelongsTo(Customer, local_key="customer_id")
-Order.items        = HasMany(OrderItem, foreign_key="order_id")
-OrderItem.order    = BelongsTo(Order, local_key="order_id")
-OrderItem.product  = BelongsTo(Product, local_key="product_id")
-Product.categories = HasManyThrough(Category, through=ProductCategory,
-                                    source_key="product_id", target_key="category_id")
+Author.posts = HasMany(Post, foreign_key="author_id")
+Post.author = BelongsTo(Author, local_key="author_id")
+Post.tags = HasManyThrough(Tag, through=PostTag, source_key="post_id", target_key="tag_id")
 ```
 
----
+## 9. Password Field Behavior
 
-## Error Handling
-
-In addition to the core CRUD and schema errors, the registry now distinguishes
-two primary-key policy violations explicitly:
-
-- `InvalidPrimaryKeyAssignmentError` when a database-managed key is supplied on `create()`.
-- `ImmutableFieldError` when a persisted primary key is mutated and then saved.
-
-```
-RegistryError
-├── ConfigurationError       bad decorator arguments or field references
-├── ModelRegistrationError   model class cannot be decorated
-├── SchemaError              DDL operation failed
-│   └── MigrationError       schema evolution step failed
-├── RelationshipError        descriptor misconfigured or used incorrectly
-├── DuplicateKeyError        INSERT collides on primary key
-├── UniqueConstraintError    INSERT/UPDATE violates a UNIQUE column
-├── RecordNotFoundError      require() found no matching row
-└── InvalidQueryError        unknown field name or malformed criteria
-```
+If your model has a field named `password`, writes are hashed automatically.
 
 ```python
-from registers.db import (
-    DuplicateKeyError, ImmutableFieldError, InvalidPrimaryKeyAssignmentError,
-    UniqueConstraintError,
-    RecordNotFoundError, InvalidQueryError, RegistryError,
-)
+@database_registry("sqlite:///app.db", table_name="accounts")
+class Account(BaseModel):
+    id: int | None = None
+    email: str
+    password: str
 
-try:
-    User.objects.create(email="alice@example.com", name="Alice")
-except DuplicateKeyError:
-    print("Primary key already exists")
-except UniqueConstraintError:
-    print("That email is already taken")
-
-try:
-    User.objects.create(id=10, email="alice@example.com", name="Alice")
-except InvalidPrimaryKeyAssignmentError:
-    print("The database manages this primary key.")
-
-try:
-    User.objects.require(999)
-except RecordNotFoundError as exc:
-    print(f"Not found: {exc}")
+acct = Account.objects.create(email="alice@example.com", password="secret123")
+assert acct.password != "secret123"
+assert acct.verify_password("secret123")
 ```
 
-### Autoincrement configuration errors
+Hashing is applied to `create`, `strict_create`, `upsert`, `save`, and `update_where`.
+
+## 10. Transactions and Lifecycle
 
 ```python
-# Wrong: non-nullable — database can't generate it
-class Bad(BaseModel):
-    id: int = db_field(primary_key=True, autoincrement=True)
-# → ConfigurationError: "...must allow None so the database can generate it.
-#    Change the field to: id: int | None = None"
-
-# Wrong: autoincrement on a non-integer type
-class AlsoBad(BaseModel):
-    id: str | None = db_field(primary_key=True, autoincrement=True, default=None)
-# → ConfigurationError: "autoincrement requires an integer key field."
-
-# Correct
-class Good(BaseModel):
-    id: int | None = db_field(primary_key=True, autoincrement=True, default=None)
+with User.objects.transaction():
+    User.objects.create(email="a@example.com", name="A")
+    User.objects.create(email="b@example.com", name="B")
 ```
 
----
-
-## Transactions
+Dispose connection pools at shutdown:
 
 ```python
-with Product.objects.transaction():
-    source = Product.objects.require(source_id)
-    dest   = Product.objects.require(dest_id)
+from registers.db import dispose_all
 
-    if source.stock < quantity:
-        raise ValueError("Insufficient stock")
-
-    Product.objects.update_where({"id": source_id}, stock=source.stock - quantity)
-    Product.objects.update_where({"id": dest_id},   stock=dest.stock + quantity)
-# Both updates committed, or both rolled back
+dispose_all()
 ```
 
----
-
-## Type Mapping
-
-| Python type | SQL column type |
-|---|---|
-| `bool` | `BOOLEAN` |
-| `int` | `INTEGER` |
-| `float` | `FLOAT` |
-| `Decimal` | `NUMERIC` |
-| `str` | `VARCHAR` |
-| `datetime` | `DATETIME` |
-| `date` | `DATE` |
-| `UUID` | `VARCHAR(36)` |
-| `list`, `dict`, `set` | `JSON` |
-| `Optional[X]` | Same as `X`, nullable |
-| Unknown / complex | `JSON` |
-
----
-
-## FastAPI Integration
+## 11. FastAPI Pattern
 
 ```python
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, HTTPException
-from registers.db import database_manager, db_field, dispose_all
-from registers.db import RecordNotFoundError, UniqueConstraintError
+from fastapi import FastAPI
 
-@database_manager("app.db", table_name="users")
-class User(BaseModel):
-    id: int | None = db_field(primary_key=True, default=None)
-    email: str     = db_field(unique=True)
-    name: str
+from myapp.models import User
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    User.create_schema()
     yield
-    dispose_all()
+    User.objects.dispose()
 
 app = FastAPI(lifespan=lifespan)
-
-@app.post("/users/", response_model=User, status_code=201)
-async def create_user(payload: User):
-    try:
-        return User.objects.create(**payload.model_dump(exclude={"id"}))
-    except UniqueConstraintError:
-        raise HTTPException(status_code=409, detail="Email already registered")
-
-@app.get("/users/{user_id}", response_model=User)
-async def get_user(user_id: int):
-    try:
-        return User.objects.require(user_id)
-    except RecordNotFoundError:
-        raise HTTPException(status_code=404, detail="User not found")
-
-@app.get("/users/", response_model=list[User])
-async def list_users(limit: int = 20, offset: int = 0):
-    return User.objects.filter(limit=limit, offset=offset)
-
-@app.put("/users/{user_id}", response_model=User)
-async def update_user(user_id: int, payload: User):
-    try:
-        user = User.objects.require(user_id)
-    except RecordNotFoundError:
-        raise HTTPException(status_code=404, detail="User not found")
-    for field, value in payload.model_dump(exclude={"id"}).items():
-        setattr(user, field, value)
-    return user.save()
-
-@app.delete("/users/{user_id}", status_code=204)
-async def delete_user(user_id: int):
-    try:
-        User.objects.require(user_id).delete()
-    except RecordNotFoundError:
-        raise HTTPException(status_code=404, detail="User not found")
 ```
 
----
+## 12. Common Exceptions
 
-## CLI Integration
+- `DuplicateKeyError`
+- `UniqueConstraintError`
+- `RecordNotFoundError`
+- `InvalidQueryError`
+- `InvalidPrimaryKeyAssignmentError`
+- `ImmutableFieldError`
+- `SchemaError`
+- `MigrationError`
 
-```python
-from app.container import registry
-from app.models import User
-from registers.db import RecordNotFoundError
-
-@registry.register("create-user", help_text="Create a new user")
-def create_user(name: str, email: str) -> None:
-    try:
-        user = User.objects.create(name=name, email=email)
-        print(f"Created: [{user.id}] {user.name} <{user.email}>")
-    except Exception as exc:
-        print(f"Error: {exc}")
-
-@registry.register("list-users", help_text="List all users")
-def list_users() -> None:
-    for user in User.objects.all():
-        print(f"  [{user.id}] {user.name} <{user.email}>")
-
-@registry.register("delete-user", help_text="Delete a user by ID")
-def delete_user(user_id: int) -> None:
-    try:
-        User.objects.require(user_id).delete()
-        print(f"Deleted user {user_id}.")
-    except RecordNotFoundError:
-        print(f"No user found with id {user_id}.")
-```
-
----
-
-## Direct Registry Usage
-
-```python
-from pydantic import BaseModel
-from registers.db import DatabaseRegistry, db_field
-
-class Widget(BaseModel):
-    id: int | None = db_field(primary_key=True, default=None)
-    name: str      = db_field(unique=True)
-    price: float
-
-registry = DatabaseRegistry(Widget, "sqlite:///widgets.db", table_name="widgets")
-widget = registry.create(name="Sprocket", price=9.99)
-print(widget.id)   # → 1
-registry.dispose()
-```
-
-Test fixture pattern:
-
-```python
-@pytest.fixture
-def user_registry():
-    registry = DatabaseRegistry(User, "sqlite:///:memory:", table_name="users")
-    yield registry
-    registry.dispose()
-```
-
----
-
-## Engine & Lifecycle
-
-Models sharing a database URL reuse one connection pool automatically.
-
-```python
-from registers.db import get_engine, dispose_engine, dispose_all
-
-engine = get_engine("sqlite:///app.db")
-dispose_engine("sqlite:///app.db")
-dispose_all()   # call at application shutdown
-```
-
-WAL mode and `PRAGMA foreign_keys=ON` are enabled automatically for all SQLite
-file databases.
+All inherit from `RegistryError`.

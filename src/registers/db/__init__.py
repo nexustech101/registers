@@ -1,6 +1,6 @@
 """
-db_registry
-~~~~~~~~~~~
+registers.db
+~~~~~~~~~~~~
 Decorator-driven persistence registry for Pydantic models.
 
 Quick start
@@ -9,7 +9,7 @@ Quick start
 ::
 
     from pydantic import BaseModel
-    from registers.db import database_manager
+    from registers.db import database_registry
 
     @database_registry(
         "sqlite:///users.db",

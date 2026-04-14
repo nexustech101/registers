@@ -8,11 +8,11 @@ data-validation boundaries.
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 from pydantic import BaseModel, Field, PrivateAttr, ValidationError, computed_field
 from sqlalchemy import inspect, text
+
+from conftest import db_url
 
 from registers.db import (
     HasManyThrough,
@@ -21,25 +21,13 @@ from registers.db import (
     InvalidPrimaryKeyAssignmentError,
     UniqueConstraintError,
     database_registry,
-    dispose_all,
     is_password_hash,
 )
 
 
-@pytest.fixture(autouse=True)
-def _dispose_engines():
-    """Ensure engine state does not leak between tests."""
-    yield
-    dispose_all()
-
-
-def _url(tmp_path: Path, name: str = "edge") -> str:
-    return f"sqlite:///{tmp_path / f'{name}.db'}"
-
-
 class TestSchemaMappingIntegrity:
     def test_alias_private_and_computed_fields_do_not_become_columns(self, tmp_path):
-        @database_registry(_url(tmp_path), table_name="widgets", key_field="id")
+        @database_registry(db_url(tmp_path), table_name="widgets", key_field="id")
         class Widget(BaseModel):
             id: int | None = None
             name: str = Field(alias="widget_name")
@@ -60,7 +48,7 @@ class TestSchemaMappingIntegrity:
         assert "_cache" not in column_names
 
     def test_optional_and_defaulted_fields_keep_expected_nullability(self, tmp_path):
-        @database_registry(_url(tmp_path), table_name="profiles", key_field="id")
+        @database_registry(db_url(tmp_path), table_name="profiles", key_field="id")
         class Profile(BaseModel):
             id: int | None = None
             display_name: str
@@ -79,7 +67,7 @@ class TestSchemaMappingIntegrity:
 class TestDataIntegrityBoundaries:
     def test_default_int_id_is_database_assigned_and_round_trips(self, tmp_path):
         @database_registry(
-            _url(tmp_path),
+            db_url(tmp_path),
             table_name="users",
             key_field="id",
             unique_fields=["email"],
@@ -98,7 +86,7 @@ class TestDataIntegrityBoundaries:
 
     def test_unique_constraint_is_normalized_for_auto_pk_models(self, tmp_path):
         @database_registry(
-            _url(tmp_path),
+            db_url(tmp_path),
             table_name="users",
             key_field="id",
             unique_fields=["email"],
@@ -113,7 +101,7 @@ class TestDataIntegrityBoundaries:
             User.objects.create(email="alice@example.com")
 
     def test_post_read_validation_surfaces_invalid_database_rows(self, tmp_path):
-        @database_registry(_url(tmp_path), table_name="events", key_field="id")
+        @database_registry(db_url(tmp_path), table_name="events", key_field="id")
         class Event(BaseModel):
             id: int | None = None
             score: int
@@ -125,7 +113,7 @@ class TestDataIntegrityBoundaries:
             Event.objects.require(1)
 
     def test_password_fields_are_hashed_automatically(self, tmp_path):
-        @database_registry(_url(tmp_path), table_name="accounts", key_field="id")
+        @database_registry(db_url(tmp_path), table_name="accounts", key_field="id")
         class Account(BaseModel):
             id: int | None = None
             email: str
@@ -139,7 +127,7 @@ class TestDataIntegrityBoundaries:
         assert account.verify_password("wrong-password") is False
 
     def test_password_is_rehashed_only_when_changed(self, tmp_path):
-        @database_registry(_url(tmp_path), table_name="accounts", key_field="id")
+        @database_registry(db_url(tmp_path), table_name="accounts", key_field="id")
         class Account(BaseModel):
             id: int | None = None
             email: str
@@ -159,7 +147,7 @@ class TestDataIntegrityBoundaries:
         assert account.verify_password("new-secret") is True
 
     def test_update_where_hashes_password_updates(self, tmp_path):
-        @database_registry(_url(tmp_path), table_name="accounts", key_field="id")
+        @database_registry(db_url(tmp_path), table_name="accounts", key_field="id")
         class Account(BaseModel):
             id: int | None = None
             email: str
@@ -176,7 +164,7 @@ class TestDataIntegrityBoundaries:
 
 class TestSpecifiedPrimaryKeyPolicy:
     def test_auto_pk_rejects_explicit_id_assignment(self, tmp_path):
-        @database_registry(_url(tmp_path), table_name="users", key_field="id")
+        @database_registry(db_url(tmp_path), table_name="users", key_field="id")
         class User(BaseModel):
             id: int | None = None
             name: str
@@ -185,7 +173,7 @@ class TestSpecifiedPrimaryKeyPolicy:
             User.objects.create(id=10, name="Alice")
 
     def test_primary_key_mutation_is_rejected(self, tmp_path):
-        @database_registry(_url(tmp_path), table_name="users", key_field="id")
+        @database_registry(db_url(tmp_path), table_name="users", key_field="id")
         class User(BaseModel):
             id: int | None = None
             name: str
@@ -198,7 +186,7 @@ class TestSpecifiedPrimaryKeyPolicy:
 
     def test_upsert_without_id_uses_unique_fields(self, tmp_path):
         @database_registry(
-            _url(tmp_path),
+            db_url(tmp_path),
             table_name="users",
             key_field="id",
             unique_fields=["email"],
@@ -216,7 +204,7 @@ class TestSpecifiedPrimaryKeyPolicy:
         assert User.objects.require(1).name == "Alicia"
 
     def test_deleted_autoincrement_ids_are_not_reused(self, tmp_path):
-        @database_registry(_url(tmp_path), table_name="users", key_field="id")
+        @database_registry(db_url(tmp_path), table_name="users", key_field="id")
         class User(BaseModel):
             id: int | None = None
             name: str
@@ -233,7 +221,7 @@ class TestSpecifiedPrimaryKeyPolicy:
 
 class TestQueryAndRelationshipGaps:
     def test_filter_rejects_values_with_incorrect_field_types(self, tmp_path):
-        @database_registry(_url(tmp_path), table_name="people", key_field="id")
+        @database_registry(db_url(tmp_path), table_name="people", key_field="id")
         class Person(BaseModel):
             id: int | None = None
             age: int
@@ -244,7 +232,7 @@ class TestQueryAndRelationshipGaps:
             Person.objects.filter(age="abc")
 
     def test_many_to_many_results_are_deduplicated(self, tmp_path):
-        url = _url(tmp_path, "relations")
+        url = db_url(tmp_path, "relations")
 
         @database_registry(url, table_name="tags", key_field="id")
         class Tag(BaseModel):

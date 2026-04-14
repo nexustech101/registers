@@ -1,6 +1,6 @@
 """
-db_registry.engine
-~~~~~~~~~~~~~~~~~~
+registers.db.engine
+~~~~~~~~~~~~~~~~~~~
 Centralised engine / connection-pool management.
 
 Design decisions
@@ -22,7 +22,7 @@ import threading
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import create_engine, event, text
+from sqlalchemy import Table, create_engine, event
 from sqlalchemy.engine import Engine
 from sqlalchemy.pool import NullPool, StaticPool
 
@@ -59,6 +59,34 @@ def dispose_all() -> None:
         urls = list(_engines.keys())
     for url in urls:
         dispose_engine(url)
+
+
+def dialect_insert(engine: Engine, table: Table) -> Any:
+    """
+    Return a dialect-specific INSERT construct for *table*.
+
+    SQLite and PostgreSQL share ``on_conflict_do_update`` support, while
+    MySQL/MariaDB use ``on_duplicate_key_update``. Unsupported dialects
+    return ``None`` so callers can fall back to a read-then-write upsert.
+    """
+    dialect_name = engine.dialect.name
+
+    if dialect_name == "sqlite":
+        from sqlalchemy.dialects.sqlite import insert
+
+        return insert(table)
+
+    if dialect_name in {"postgresql", "pg8000"}:
+        from sqlalchemy.dialects.postgresql import insert
+
+        return insert(table)
+
+    if dialect_name in {"mysql", "mariadb"}:
+        from sqlalchemy.dialects.mysql import insert
+
+        return insert(table)
+
+    return None
 
 
 def _create_engine(database_url: str) -> Engine:

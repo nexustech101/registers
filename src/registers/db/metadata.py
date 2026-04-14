@@ -1,5 +1,5 @@
 """
-db_registry.metadata
+registers.db.metadata
 ~~~~~~~~~~~~~~~~~~~~
 Immutable configuration for a single model registration.
 Validated at decoration time so problems surface immediately.

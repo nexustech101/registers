@@ -8,7 +8,6 @@ password hashing, login, update, retrieval, and deletion.
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
-from pathlib import Path
 
 import pytest
 from pydantic import BaseModel
@@ -19,11 +18,12 @@ pytest.importorskip("httpx")
 from fastapi import FastAPI, HTTPException
 import httpx
 
+from conftest import db_url
+
 from registers.db import (
     RecordNotFoundError,
     UniqueConstraintError,
     database_registry,
-    dispose_all,
     is_password_hash,
 )
 
@@ -50,19 +50,10 @@ class UserOut(BaseModel):
     name: str
 
 
-@pytest.fixture(autouse=True)
-def _dispose_engines():
-    yield
-    dispose_all()
-
-
-def _url(tmp_path: Path, name: str = "fastapi") -> str:
-    return f"sqlite:///{tmp_path / f'{name}.db'}"
-
 
 @pytest.mark.anyio
 async def test_fastapi_full_user_lifecycle_with_password_auth(tmp_path):
-    url = _url(tmp_path)
+    url = db_url(tmp_path)
 
     @database_registry(
         url,
