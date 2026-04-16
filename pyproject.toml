@@ -3,7 +3,7 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "functionals"
+name = "decorates"
 version = "4.1.0"
 description = "Decorator-driven CLI and database toolkit for Pydantic and SQLAlchemy."
 readme = { file = "README.md", content-type = "text/markdown" }
