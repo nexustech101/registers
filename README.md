@@ -81,6 +81,8 @@ from functionals.db import (
 
 DB_URL = "sqlite:///shop.db"
 
+# --- Models ---
+
 @database_registry(DB_URL, table_name="customers", unique_fields=["email"])
 class Customer(BaseModel):
     id: int | None = None
@@ -101,18 +103,7 @@ class Order(BaseModel):
     quantity: int
     total: float
 
-class CreateCustomer(BaseModel):
-    name: str
-    email: str
-
-class CreateProduct(BaseModel):
-    name: str
-    price: float
-
-class CreateOrder(BaseModel):
-    customer_id: int
-    product_id: int
-    quantity: int
+# --- App ---
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -124,39 +115,28 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
+# --- Routes ---
+
 @app.post("/customers", response_model=Customer, status_code=201)
-def create_customer(payload: CreateCustomer):
-    try:
-        return Customer.objects.create(**payload.model_dump())
-    except UniqueConstraintError:
-        raise HTTPException(status_code=409, detail="Email already exists")
+def create_customer(name: str, email: str):
+    return Customer.objects.create(name=name, email=email)
 
 @app.get("/customers/{customer_id}", response_model=Customer)
 def get_customer(customer_id: int):
-    try:
-        return Customer.objects.require(customer_id)
-    except RecordNotFoundError:
-        raise HTTPException(status_code=404, detail="Customer not found")
+    return Customer.objects.require(customer_id)
 
 @app.post("/products", response_model=Product, status_code=201)
-def create_product(payload: CreateProduct):
-    return Product.objects.create(**payload.model_dump())
+def create_product(name: str, price: float):
+    return Product.objects.create(name=name, price=price)
 
 @app.post("/orders", response_model=Order, status_code=201)
-def create_order(payload: CreateOrder):
-    customer = Customer.objects.get(payload.customer_id)
-    if customer is None:
-        raise HTTPException(status_code=404, detail="Customer not found")
-
-    product = Product.objects.get(payload.product_id)
-    if product is None:
-        raise HTTPException(status_code=404, detail="Product not found")
-
+def create_order(customer_id: int, product_id: int, quantity: int):
+    product = Product.objects.require(product_id)
     return Order.objects.create(
-        customer_id=customer.id,
-        product_id=product.id,
-        quantity=payload.quantity,
-        total=product.price * payload.quantity,
+        customer_id=customer_id,
+        product_id=product_id,
+        quantity=quantity,
+        total=product.price * quantity,
     )
 
 @app.get("/orders/desc", response_model=list[Order])
@@ -166,6 +146,59 @@ def list_orders_desc(limit: int = 20, offset: int = 0):  # Filter by oldest   (1
 @app.get("/orders/asc", response_model=list[Order])
 def list_orders_asc(limit: int = 20, offset: int = 0):  # Filter by newest  (n,..., 3, 2, 1)
     return Order.objects.filter(order_by="-id", limit=limit, offset=offset)
+```
+
+```bash
+# POST /customers
+curl -X POST "http://localhost:8000/customers" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Alice Johnson", "email": "alice@example.com"}'
+
+# Response
+{"id": 1, "name": "Alice Johnson", "email": "alice@example.com"}
+
+
+# GET /customers/1
+curl "http://localhost:8000/customers/1"
+
+# Response
+{"id": 1, "name": "Alice Johnson", "email": "alice@example.com"}
+
+
+# POST /products
+curl -X POST "http://localhost:8000/products" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Wireless Keyboard", "price": 49.99}'
+
+# Response
+{"id": 1, "name": "Wireless Keyboard", "price": 49.99}
+
+
+# POST /orders
+curl -X POST "http://localhost:8000/orders" \
+  -H "Content-Type: application/json" \
+  -d '{"customer_id": 1, "product_id": 1, "quantity": 2}'
+
+# Response
+{"id": 1, "customer_id": 1, "product_id": 1, "quantity": 2, "total": 99.98}
+
+
+# GET /orders/asc  (oldest first)
+curl "http://localhost:8000/orders/asc?limit=20&offset=0"
+
+# Response
+[
+  {"id": 1, "customer_id": 1, "product_id": 1, "quantity": 2, "total": 99.98}
+]
+
+
+# GET /orders/desc  (newest first)
+curl "http://localhost:8000/orders/desc?limit=20&offset=0"
+
+# Response
+[
+  {"id": 1, "customer_id": 1, "product_id": 1, "quantity": 2, "total": 99.98}
+]
 ```
 
 ## Core Concepts
