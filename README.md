@@ -17,7 +17,7 @@ The package emphasizes explicit APIs, predictable behavior, and test-backed reli
 ## Install
 
 ```bash
-pip install functionals
+pip install decorates  # Package name is `decorates`; module name is `functionals`
 ```
 
 ## Quick Start Guide
