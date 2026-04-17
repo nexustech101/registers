@@ -146,11 +146,14 @@ def test_interactive_mode_supports_shell_local_commands(capsys):
     )
 
     out = capsys.readouterr().out
-    assert "Registered Commands" in out
-    assert "Interactive Help" in out
+    assert "Shell builtins" in out
+    assert "Registered commands" in out
     assert "Decorates CLI Help" not in out
-    assert "Command: add" in out
-    assert "Accepted: <title> or --title VALUE" in out
+    assert "add" in out
+    assert "Usage    usage:" in out
+    assert "Aliases  --add" in out
+    assert "Arguments" in out
+    assert "title  (str, required)" in out
 
 
 def test_interactive_mode_renders_banner_by_default(monkeypatch, capsys):

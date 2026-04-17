@@ -540,7 +540,7 @@ class CommandRegistry:
 
         lines += [
             "--------------------------------",
-            "Functionals CLI Help",
+            "Decorates CLI Help",
             "--------------------------------",
             "",
             "Overview",
@@ -582,18 +582,16 @@ class CommandRegistry:
     def _render_command_help(self, entry: CommandEntry, *, program_name: str | None = None) -> str:
         from functionals.cli.parser import render_command_usage
 
-        prog    = program_name or "app.py"
+        prog = program_name or "app.py"
         summary = entry.help_text or entry.description or "No description provided."
         aliases = ", ".join(entry.options) if entry.options else "none"
 
         lines: list[str] = [
             f"Command: {entry.name}",
             "=" * (9 + len(entry.name)),
-            "",
-            f"  {summary}",
-            "",
-            f"  Usage:   {render_command_usage(entry, program_name=prog)}",
-            f"  Aliases: {aliases}",
+            f"Description: {summary}",
+            f"Usage: {render_command_usage(entry, program_name=prog)}",
+            f"Aliases: {aliases}",
             "",
             "Arguments",
         ]
@@ -609,7 +607,7 @@ class CommandRegistry:
             help_text = arg.help_text or "No description provided."
 
             lines += [
-                f"  {arg.name}  ({type_name}, {qualifier}{default})",
+                f"  {arg.name} ({type_name}, {qualifier}{default})",
                 f"    {help_text}",
                 f"    Accepted: {self._render_argument_forms(arg)}",
             ]
