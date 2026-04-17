@@ -23,8 +23,6 @@ if __name__ == "__main__":
 
 ## Example 2
 
-Here is a cleaner, more professional version with less repetition and clearer command names.
-
 ```python
 from __future__ import annotations
 

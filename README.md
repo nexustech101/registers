@@ -30,45 +30,176 @@ pip install decorates  # Package name is `decorates`; module name is `functional
 ### CLI in minutes
 
 ```python
+from __future__ import annotations
+
+from enum import StrEnum
+from time import strftime
+
 import functionals.cli as cli
 import functionals.db as db
+from functionals.db import db_field
 from pydantic import BaseModel
 
-@db.database_registry("users.db", table_name="users", key_field="id")
-class User(BaseModel):
-    id: int | None = None
-    name: str
+DB_PATH = "todos.db"
+TABLE = "todos"
+NOW = lambda: strftime("%Y-%m-%d %H:%M:%S")
 
-@cli.register(name="add", description="Create a user")
-@cli.argument("name", type=str)
+
+class TodoStatus(StrEnum):
+    PENDING = "pending"
+    COMPLETED = "completed"
+
+
+@db.database_registry(DB_PATH, table_name=TABLE, key_field="id")
+class TodoItem(BaseModel):
+    id: int | None = None
+    title: str = db_field(index=True)
+    description: str = db_field(default="")
+    status: TodoStatus = db_field(default=TodoStatus.PENDING.value)
+    created_at: str = db_field(default_factory=NOW)
+    updated_at: str = db_field(default_factory=NOW)
+
+
+@cli.register(name="add", description="Create a todo item")
+@cli.argument("title", type=str, help="Todo title")
+@cli.argument("description", type=str, default="", help="Todo description")
 @cli.option("--add")
 @cli.option("-a")
-def add_user(name: str) -> str:
-    user = User(name=name)
-    user.save()
-    return f"Created user {user.id}: {user.name}"
+def add_todo(title: str, description: str = "") -> str:
+    todo = TodoItem(title=title, description=description)
+    todo.save()
+    return f"Added: {todo.title} (ID: {todo.id})"
 
-@cli.register(name="list", description="List users")
+
+@cli.register(name="list", description="List todo items")
 @cli.option("--list")
 @cli.option("-l")
-def list_users() -> str:
-    users = User.objects.all()
-    if not users:
-        return "No users found."
-    return "\n".join(f"{u.id}: {u.name}" for u in users)
+def list_todos() -> str:
+    todos = TodoItem.objects.all()
+    if not todos:
+        return "No todo items found."
+    return "\n".join(f"{t.id}: {t.title} [{t.status}]" for t in todos)
+
+
+@cli.register(name="complete", description="Mark a todo item as completed")
+@cli.argument("todo_id", type=int, help="Todo ID")
+@cli.option("--complete")
+@cli.option("-c")
+def complete_todo(todo_id: int) -> str:
+    todo = TodoItem.objects.get(id=todo_id)
+    if not todo:
+        return f"Todo item with ID {todo_id} not found."
+
+    todo.status = TodoStatus.COMPLETED.value
+    todo.updated_at = NOW()
+    todo.save()
+    return f"Completed todo ID {todo_id}."
+
+
+@cli.register(name="update", description="Update a todo item")
+@cli.argument("todo_id", type=int, help="Todo ID")
+@cli.argument("title", type=str, default=None, help="New title")
+@cli.argument("description", type=str, default=None, help="New description")
+@cli.option("--update")
+@cli.option("-u")
+def update_todo(todo_id: int, title: str | None = None, description: str | None = None) -> str:
+    todo = TodoItem.objects.get(id=todo_id)
+    if not todo:
+        return f"Todo item with ID {todo_id} not found."
+
+    if title is not None:
+        todo.title = title
+    if description is not None:
+        todo.description = description
+
+    todo.updated_at = NOW()
+    todo.save()
+    return f"Updated todo ID {todo_id}."
+
 
 if __name__ == "__main__":
-    cli.run()
+    cli.run(
+        shell_title="Todo Console",
+        shell_description="Manage tasks.",
+        shell_colors=None,  # auto
+        shell_banner=True,
+    )
 ```
 
+Run it as follows:
+
 ```bash
-python users.py
-python users.py add "Alice"
-python users.py --add "Bob"
-python users.py list
-python users.py --help
-python users.py help add
-python users.py --interactive
+# Add
+python todo.py add "Buy groceries" "Milk, eggs, bread"
+python todo.py --add "Buy groceries" "Milk, eggs, bread"
+python todo.py -a "Buy groceries" "Milk, eggs, bread"
+python todo.py add --title "Buy groceries" --description "Milk, eggs, bread"
+
+# List
+python todo.py list
+python todo.py --list
+python todo.py -l
+
+# Complete
+python todo.py complete 1
+python todo.py --complete 1
+python todo.py -c 1
+
+# Update
+python todo.py update 1 "Read two books" "Finish both novels this week"
+python todo.py update 1 --title "Read two books" --description "Finish both novels this week"
+python todo.py --update 1 --title "Read two books"
+```
+
+Or:
+
+```bash
+# Run directly for interactive mode
+python todo.py
+```
+Interactive mode:
+
+```bash
+  ______          __         ______                       __   
+ /_  __/___  ____/ /___     / ____/___  ____  _________  / /__ 
+  / / / __ \/ __  / __ \   / /   / __ \/ __ \/ ___/ __ \/ / _ \
+ / / / /_/ / /_/ / /_/ /  / /___/ /_/ / / / (__  ) /_/ / /  __/
+/_/  \____/\__,_/\____/   \____/\____/_/ /_/____/\____/_/\___/
+Todo Console
+Manage tasks.
+
+> help
+Shell builtins
+  help            Show this menu
+  help <command>  Show detailed help for a specific command
+  commands        List all registered commands
+  exit / quit     Leave interactive mode
+
+Registered commands
+  add          Add a new todo item
+  delete       Delete a todo item
+  list         List all todo items
+  complete     Mark a todo item as completed
+  update       Update a todo item
+  greet        Greet someone by name
+  create_user  Create and persist a new user
+  list-users   List all persisted users
+  get-user     Get a user by ID
+
+Tip: run 'help <command>' for full argument details.
+> help add
+add
+  Add a new todo item
+
+  Usage    usage: test.py add <title> [<description> | --description VALUE]
+  Aliases  --add, -a
+
+Arguments
+  title  (str, required)                    Title of the todo item
+  description  (str, optional, default='')  Description of the todo item
+> exit
+
+Goodbye.
 ```
 
 ### Database + FastAPI in 5 minutes
