@@ -159,6 +159,8 @@ python todo.py
 ```
 Interactive mode:
 
+![Screenshot](image.png)
+
 ```bash
   ______          __         ______                       __   
  /_  __/___  ____/ /___     / ____/___  ____  _________  / /__ 
