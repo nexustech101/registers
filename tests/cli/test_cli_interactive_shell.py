@@ -70,7 +70,8 @@ def test_empty_argv_shows_help_when_not_tty(monkeypatch, capsys):
 
     assert cli.run([], print_result=False) is None
     out = capsys.readouterr().out
-    assert "Decorates CLI Help" in out
+    assert "Decorates CLI" in out
+    assert "Shell builtins" in out
     assert "noop" in out
 
 

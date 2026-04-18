@@ -367,7 +367,11 @@ class InteractiveShell:
 
         # Fall back to registry for built-ins (help, --interactive, etc.)
         try:
-            self._registry.print_help(target, program_name=self._program_name)
+            self._registry.print_help(
+                target,
+                program_name=self._program_name,
+                colors=self._colors,
+            )
         except UnknownCommandError:
             suggestion = self._registry.suggest(target)
             if suggestion:

@@ -47,5 +47,6 @@ class TestCliErrorHandling:
 
         assert cli.run([], print_result=False) is None
         out = capsys.readouterr().out
-        assert "Decorates CLI Help" in out
-        assert "Commands" in out
+        assert "Decorates CLI" in out
+        assert "Shell builtins" in out
+        assert "Registered commands" in out

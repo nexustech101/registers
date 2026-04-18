@@ -38,5 +38,6 @@ htmlcov/
 *.zip
 *.txt
 *P.md
+*spec.md
 prototype.py
 todo.py

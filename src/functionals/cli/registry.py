@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from difflib import get_close_matches
 import inspect
 import logging
+import os
 from pathlib import Path
 import sys
 from collections.abc import Callable
@@ -26,6 +27,14 @@ HELP_ALIASES = ("help", "--help", "-h")
 HELP_RESERVED = frozenset({"help", "h"})
 INTERACTIVE_ALIASES = ("--interactive", "-i")
 INTERACTIVE_RESERVED = frozenset({"interactive", "i"})
+
+
+class _C:
+    RESET = "\033[0m"
+    BOLD = "\033[1m"
+    DIM = "\033[2m"
+    CYAN = "\033[36m"
+    BOLD_CYAN = "\033[1;36m"
 
 
 class _MissingType:
@@ -194,22 +203,38 @@ class CommandRegistry:
             summary = entry.help_text or entry.description or "(no description)"
             print(f"  {entry.name}{aliases}: {summary}")
 
-    def print_help(self, command_name: str | None = None, *, program_name: str | None = None) -> None:
+    def print_help(
+        self,
+        command_name: str | None = None,
+        *,
+        program_name: str | None = None,
+        shell_title: str = "Functionals CLI",
+        shell_description: str = "Type 'help' for shell help and 'exit' to quit.",
+        colors: bool | None = None,
+    ) -> None:
         """Print comprehensive CLI help for all commands or one specific command."""
+        use_color = self._supports_color(colors)
         if command_name is None:
-            print(self._render_global_help(program_name=program_name))
+            print(
+                self._render_global_help(
+                    program_name=program_name,
+                    shell_title=shell_title,
+                    shell_description=shell_description,
+                    use_color=use_color,
+                )
+            )
             return
 
         normalized = self._normalize_alias(command_name)
         if normalized in HELP_RESERVED:
-            print(self._render_builtin_help_detail(HELP_COMMAND_NAME, program_name=program_name))
+            print(self._render_builtin_help_detail(HELP_COMMAND_NAME, program_name=program_name, use_color=use_color))
             return
         if normalized in INTERACTIVE_RESERVED:
-            print(self._render_builtin_help_detail("interactive", program_name=program_name))
+            print(self._render_builtin_help_detail("interactive", program_name=program_name, use_color=use_color))
             return
 
         entry = self.get(command_name)
-        print(self._render_command_help(entry, program_name=program_name))
+        print(self._render_command_help(entry, program_name=program_name, use_color=use_color))
 
     def run(
         self,
@@ -243,7 +268,12 @@ class CommandRegistry:
                     colors=shell_colors,
                     shell_usage=shell_usage,
                 )
-            self.print_help(program_name=program_name)
+            self.print_help(
+                program_name=program_name,
+                shell_title=shell_title,
+                shell_description=shell_description,
+                colors=shell_colors,
+            )
             return None
 
         token = raw[0]
@@ -272,7 +302,13 @@ class CommandRegistry:
             if len(raw) == 2:
                 target = raw[1]
                 try:
-                    self.print_help(target, program_name=program_name)
+                    self.print_help(
+                        target,
+                        program_name=program_name,
+                        shell_title=shell_title,
+                        shell_description=shell_description,
+                        colors=shell_colors,
+                    )
                 except UnknownCommandError:
                     suggestion = self.suggest(target)
                     if suggestion:
@@ -281,7 +317,12 @@ class CommandRegistry:
                         print(f"Unknown command '{target}'.")
                     raise SystemExit(2)
             else:
-                self.print_help(program_name=program_name)
+                self.print_help(
+                    program_name=program_name,
+                    shell_title=shell_title,
+                    shell_description=shell_description,
+                    colors=shell_colors,
+                )
             return None
 
         try:
@@ -537,54 +578,45 @@ class CommandRegistry:
             return f"{origin.__name__}[{args}]"
         return getattr(annotation, "__name__", None) or str(annotation)
 
-    def _render_global_help(self, *, program_name: str | None = None) -> str:
-        from functionals.cli.parser import render_command_usage
-
-        prog = program_name or "app.py"
+    def _render_global_help(
+        self,
+        *,
+        program_name: str | None = None,
+        shell_title: str = "Functionals CLI",
+        shell_description: str = "Type 'help' for shell help and 'exit' to quit.",
+        use_color: bool = False,
+    ) -> str:
+        _ = program_name or "app.py"
         lines: list[str] = []
-
         lines += [
-            "--------------------------------",
-            "Decorates CLI Help",
-            "--------------------------------",
+            self._c(shell_title, _C.BOLD_CYAN, use_color),
+            self._c(shell_description, _C.DIM, use_color),
             "",
-            "Overview",
-            "  Build commands with @register, @argument, and @option decorators.",
+            self._section_header("Shell builtins", use_color),
+            self._render_help_table(
+                [
+                    ("help", "Show this menu"),
+                    ("help <command>", "Show detailed help for a specific command"),
+                    ("commands", "List all registered commands"),
+                    ("exec <command>", "Run a system command in the host shell"),
+                    ("exit / quit", "Leave interactive mode"),
+                ],
+                use_color=use_color,
+            ),
             "",
-            "Usage",
-            f"  {prog} <command> [arguments]",
-            f"  {prog} {HELP_COMMAND_NAME} [command]",
-            f"  {prog} --help | -h",
-            f"  {prog} --interactive | -i",
+            self._render_global_commands_table(header="Registered commands", use_color=use_color),
             "",
-            "Built-in Commands",
-            f"  {HELP_COMMAND_NAME}, --help, -h    Show this menu or help for one command.",
-            f"  --interactive, -i               Start interactive REPL mode.",
-            "",
-        ]
-
-        if not self._commands:
-            lines += ["Commands", "  No commands are currently registered."]
-            return "\n".join(lines)
-
-        lines.append("Commands")
-        for entry in self._commands.values():
-            summary = entry.help_text or entry.description or "No description provided."
-            aliases = ", ".join(entry.options) if entry.options else "none"
-            lines += [
-                f"  {entry.name}",
-                f"    {summary}",
-                f"    Aliases: {aliases}",
-                f"    Usage:   {render_command_usage(entry, program_name=prog)}",
-            ]
-
-        lines += [
-            "",
-            f"Tip: run '{prog} {HELP_COMMAND_NAME} <command>' for argument-level details.",
+            self._c("Tip: run 'help <command>' for full argument details.", _C.DIM, use_color),
         ]
         return "\n".join(lines)
 
-    def _render_command_help(self, entry: CommandEntry, *, program_name: str | None = None) -> str:
+    def _render_command_help(
+        self,
+        entry: CommandEntry,
+        *,
+        program_name: str | None = None,
+        use_color: bool = False,
+    ) -> str:
         from functionals.cli.parser import render_command_usage
 
         prog = program_name or "app.py"
@@ -592,13 +624,13 @@ class CommandRegistry:
         aliases = ", ".join(entry.options) if entry.options else "none"
 
         lines: list[str] = [
-            f"Command: {entry.name}",
-            "=" * (9 + len(entry.name)),
+            self._section_header(f"Command: {entry.name}", use_color),
+            self._c("=" * (9 + len(entry.name)), _C.DIM, use_color),
             f"Description: {summary}",
             f"Usage: {render_command_usage(entry, program_name=prog)}",
             f"Aliases: {aliases}",
             "",
-            "Arguments",
+            self._section_header("Arguments", use_color),
         ]
 
         if not entry.arguments:
@@ -630,7 +662,13 @@ class CommandRegistry:
         named = " or ".join(f"{token} VALUE" for token in tokens)
         return f"<{arg.name}> or {named}"
 
-    def _render_builtin_help_detail(self, target: str, *, program_name: str | None = None) -> str:
+    def _render_builtin_help_detail(
+        self,
+        target: str,
+        *,
+        program_name: str | None = None,
+        use_color: bool = False,
+    ) -> str:
         prog = program_name or "app.py"
 
         if target == HELP_COMMAND_NAME:
@@ -642,10 +680,85 @@ class CommandRegistry:
             description = "Start interactive REPL mode."
             usage_lines = [f"{prog} --interactive", f"{prog} -i"]
 
-        header = f"Built-in Command: {name}"
-        lines  = [header, "=" * len(header), "", description, "", "Usage"]
+        header = self._section_header(f"Built-in Command: {name}", use_color)
+        lines = [header, self._c("=" * len(f"Built-in Command: {name}"), _C.DIM, use_color), "", description, "", self._section_header("Usage", use_color)]
         lines += [f"  {line}" for line in usage_lines]
         return "\n".join(lines)
+
+    def _render_global_commands_table(self, *, header: str, use_color: bool) -> str:
+        entries = list(self._commands.values())
+        if not entries:
+            return "\n".join(
+                [
+                    self._section_header(header, use_color),
+                    self._c("  No commands are currently registered.", _C.DIM, use_color),
+                ]
+            )
+
+        rows = [
+            (entry.name, entry.help_text or entry.description or "No description provided.")
+            for entry in entries
+        ]
+        return "\n".join(
+            [
+                self._section_header(header, use_color),
+                self._render_help_table(rows, use_color=use_color),
+            ]
+        )
+
+    def _render_help_table(self, rows: list[tuple[str, str]], *, use_color: bool, indent: int = 2) -> str:
+        if not rows:
+            return ""
+        pad = " " * indent
+        col_width = max(len(key) for key, _ in rows)
+        return "\n".join(
+            f"{pad}{self._c(key, _C.CYAN, use_color)}{' ' * (col_width - len(key))}  {value}"
+            for key, value in rows
+        )
+
+    @staticmethod
+    def _section_header(title: str, use_color: bool) -> str:
+        return CommandRegistry._c(title, _C.BOLD, use_color)
+
+    @staticmethod
+    def _c(text: str, code: str, enabled: bool) -> str:
+        return f"{code}{text}{_C.RESET}" if enabled else text
+
+    @staticmethod
+    def _enable_windows_ansi() -> bool:
+        if os.name != "nt":
+            return True
+        try:
+            import ctypes
+            kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+            handle = kernel32.GetStdHandle(-11)
+            if not handle:
+                return False
+            mode = ctypes.c_ulong()
+            if not kernel32.GetConsoleMode(handle, ctypes.byref(mode)):
+                return False
+            return kernel32.SetConsoleMode(handle, mode.value | 0x0004) != 0
+        except Exception:
+            return False
+
+    @classmethod
+    def _supports_color(cls, colors: bool | None) -> bool:
+        if colors is not None:
+            return colors
+        if os.getenv("NO_COLOR"):
+            return False
+        stream = getattr(sys, "stdout", None)
+        isatty = getattr(stream, "isatty", None)
+        if not callable(isatty):
+            return False
+        try:
+            tty = bool(isatty())
+        except Exception:
+            return False
+        if not tty:
+            return False
+        term = os.getenv("TERM", "").lower()
+        return term != "dumb" and cls._enable_windows_ansi()
 
     def __len__(self) -> int:
         return len(self._commands)

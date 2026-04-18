@@ -138,13 +138,13 @@ def test_builtin_help_command_prints_professional_menu(capsys):
     assert cli.run(["help"], print_result=False) is None
     out = capsys.readouterr().out
 
-    assert "Decorates CLI Help" in out
-    assert "Built-in Command" in out
-    assert "Commands" in out
+    assert "Decorates CLI" in out
+    assert "Shell builtins" in out
+    assert "Registered commands" in out
     assert "add" in out
     assert "update" in out
     assert "help <command>" in out
-    assert "--interactive" in out
+    assert "exec <command>" in out
 
 
 def test_builtin_help_aliases_print_menu(capsys):
@@ -152,11 +152,19 @@ def test_builtin_help_aliases_print_menu(capsys):
 
     assert cli.run(["--help"], print_result=False) is None
     out = capsys.readouterr().out
-    assert "Decorates CLI Help" in out
+    assert "Decorates CLI" in out
 
     assert cli.run(["-h"], print_result=False) is None
     out = capsys.readouterr().out
-    assert "Decorates CLI Help" in out
+    assert "Decorates CLI" in out
+
+
+def test_builtin_help_can_emit_color_when_enabled(capsys):
+    _register_todo_commands()
+
+    assert cli.run(["--help"], print_result=False, shell_colors=True) is None
+    out = capsys.readouterr().out
+    assert "\x1b[" in out
 
 
 def test_builtin_help_supports_command_specific_view(capsys):

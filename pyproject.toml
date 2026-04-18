@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "decorates"
-version = "4.3.3"
+version = "4.4.0"
 description = "Decorator-driven CLI and database toolkit for Pydantic and SQLAlchemy."
 readme = { file = "README.md", content-type = "text/markdown" }
 requires-python = ">=3.10"
@@ -21,6 +21,8 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
+    "Intended Audience :: Developers",
+    "Topic :: Software Development :: Libraries",
 ]
 
 dependencies = [
@@ -28,6 +30,9 @@ dependencies = [
     "sqlalchemy>=2.0",
     "pyfiglet>=1.0"
 ]
+
+[project.scripts]
+fx = "functionals.fx.commands:main"
 
 [project.optional-dependencies]
 dev = [

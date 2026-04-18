@@ -157,7 +157,55 @@ python todo.py
 ```
 Interactive mode:
 
-![Screenshot](image.png)
+![Screenshot](img1.png)
+
+### `functionals.fx` in minutes (project-type init + health)
+
+`functionals.fx` is the project tooling layer built on top of the CLI + DB modules.
+After local install (`pip install -e .`), you can run:
+
+```bash
+fx --help
+```
+
+Create a CLI-first project structure:
+
+```bash
+mkdir todo_cli && cd todo_cli
+fx init cli TodoService .
+fx health .
+```
+
+Expected structure:
+
+```text
+app.py
+plugins/__init__.py
+.functionals/fx.db
+```
+
+Create a DB-first project structure:
+
+```bash
+mkdir ../todo_db && cd ../todo_db
+fx init db DataService .
+fx health .
+```
+
+Expected structure:
+
+```text
+models.py
+plugins/__init__.py
+.functionals/fx.db
+```
+
+![Screenshot](img2.png)
+![Screenshot](img3.png)
+
+Notes:
+- `fx init <project_name>` still works and defaults to `cli`.
+- `fx health` is the canonical check command (`--doctor` is kept as a compatibility alias).
 
 ### Database + FastAPI in 5 minutes
 
@@ -358,6 +406,7 @@ If your model contains a field named `password`, password values are automatical
 ## Documentation
 
 - DB guide: `src/functionals/db/USAGE.md`
+- FX guide: `src/functionals/fx/USAGE.md`
 - CLI source API: `src/functionals/cli`
 - DB source API: `src/functionals/db`
 
