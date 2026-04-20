@@ -8,6 +8,7 @@
 [![DB](https://img.shields.io/badge/module-functionals.db-darkorange)](#architecture)
 [![Cron](https://img.shields.io/badge/module-functionals.cron-purple)](#architecture)
 [![FX](https://img.shields.io/badge/module-functionals.fx-black)](#quick-start-with-fx)
+![Tests](https://img.shields.io/badge/tests-200%2B%20unit%20tests-brightgreen)
 
 Functionals is a DX-first Python framework for building:
 
