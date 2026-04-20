@@ -3,17 +3,29 @@
 [![PyPI version](https://img.shields.io/pypi/v/decorates)](https://pypi.org/project/decorates/)
 [![Python versions](https://img.shields.io/pypi/pyversions/decorates)](https://pypi.org/project/decorates/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Module](https://img.shields.io/badge/module-functionals-green)](#decorates)
-[![CLI](https://img.shields.io/badge/module-functionals.cli-blue)](#decoratescli)
-[![DB](https://img.shields.io/badge/module-functionals.db-darkorange)](#decoratesdb)
-[![Tests](https://img.shields.io/badge/tested-190%2B%20tests-brightgreen)](#testing)
+[![Module](https://img.shields.io/badge/module-functionals-green)](#functionals)
+[![CLI](https://img.shields.io/badge/module-functionals.cli-blue)](#architecture)
+[![DB](https://img.shields.io/badge/module-functionals.db-darkorange)](#architecture)
+[![Cron](https://img.shields.io/badge/module-functionals.cron-purple)](#architecture)
+[![FX](https://img.shields.io/badge/module-functionals.fx-black)](#quick-start-with-fx)
 
-Decorates is a production-oriented toolkit for two common Python surfaces:
+Functionals is a DX-first Python framework for building:
 
-- `functionals.cli` for module-first command registration, typed arguments, and built-in help
-- `functionals.db` for Pydantic model persistence and additive schema operations on SQLAlchemy
+- CLI tooling systems
+- Data and API services
+- Scheduled/event automation workflows
 
-The package emphasizes explicit APIs, predictable behavior, and test-backed reliability.
+It uses decorators for command, model, and job definitions, and ships with `fx`, a built-in project manager for scaffolding, running, validating, and operating projects.
+
+This framework is for teams and developers who want one coherent toolkit for backend development and DevOps workflows instead of stitching together many unrelated layers.
+
+## Why Functionals
+
+- Fast setup: generate ready-to-run CLI or DB/API projects with `fx init`.
+- Unified patterns: decorators for commands (`cli`), models (`db`), and jobs (`cron`).
+- Operational workflow built in: run, install, update, pull plugins, and manage cron from `fx`.
+- Plugin architecture: organize command suites into modules and load them cleanly.
+- Production-minded behavior: structured state, health checks, operation history, and test coverage.
 
 ## Install
 
@@ -235,6 +247,14 @@ fx update TodoService --source path --path ../framework
 
 # Pull plugins safely from a git repository
 fx pull https://github.com/example/plugins-repo.git TodoService --ref main --subdir plugins
+
+# Manage cron runtime and jobs
+fx cron start TodoService
+fx cron jobs TodoService
+fx cron trigger nightly-build TodoService
+fx cron generate TodoService
+fx cron apply TodoService
+fx cron stop TodoService
 ```
 
 `fx worktree` is currently spec-defined only and planned for a later release after the graph/tree data-structure layer is implemented.
@@ -373,67 +393,74 @@ curl "http://localhost:8000/orders/desc?limit=20&offset=0"
 ]
 ```
 
-## Core Concepts
+## Cron + Workflow Operations
 
-### `functionals.cli`
+Use `functionals.cron` decorators to define interval/cron/event jobs and manage runtime through `fx`.
 
-- Register functions with module-level decorators: `@register`, `@argument`, `@option`.
-- Run command handlers through the module registry via `functionals.cli.run()`.
-  With no argv in an interactive terminal, `run()` enters REPL mode.
-- Support positional + named argument forms (for non-bool args), with bool flags as `--flag`.
-- Command aliases are declared with `@option("-x")` / `@option("--long")`.
-- Built-in help command is always available: `help`, `--help`, and `-h`.
-- `help <command>` prints command purpose, invocation tokens, usage, and
-  argument-level invocation forms.
-- Interactive mode can be entered explicitly with `--interactive` / `-i` or
-  programmatically via `functionals.cli.run_shell()`.
-- Interactive shell banners use `pyfiglet` automatically when installed,
-  with a clean built-in ASCII fallback when it is not.
-- Interactive shell output supports terminal colors (auto-detected) and uses
-  a dedicated in-shell help menu via `help`.
-- Interactive shell branding is configurable (`shell_title`,
-  `shell_description`) for custom app consoles.
-- `functionals.cli.run(...)` accepts shell options too, so one entrypoint can
-  serve both normal CLI args and interactive mode.
-  Options include `shell_prompt`, `shell_title`, `shell_description`,
-  `shell_banner`, `shell_colors`, `shell_input_fn`, and `shell_usage`.
-- Runtime wraps unexpected handler crashes as `CommandExecutionError` (with original exception chaining).
-- Operational logs use standard Python logging namespaces under `functionals.cli.*`.
-
-### `functionals.db`
-
-- Register `BaseModel` classes with `@database_registry(...)`.
-- Access all persistence through `Model.objects`.
-- `id: int | None = None` gives database-managed autoincrement IDs.
-- Schema helpers are available as class methods: `create_schema`, `drop_schema`, `schema_exists`, `truncate`.
-- Unexpected SQLAlchemy runtime failures are normalized into `SchemaError` for cleaner, predictable error handling.
-- Operational logs use standard Python logging namespaces under `functionals.db.*`.
-- DB exceptions provide structured metadata (`exc.context`, `exc.to_dict()`) for production diagnostics.
-
-## `functionals.db` Usage Snapshot
-
-```python
-# Filtering operators
-Order.objects.filter(total__gte=100)
-Customer.objects.filter(email__ilike="%@example.com")
-Order.objects.filter(quantity__in=[1, 2, 3])
-
-# Sorting and pagination
-Order.objects.filter(order_by="-id", limit=20, offset=0)
-
-# Bulk writes
-Product.objects.bulk_create([...])
-Product.objects.bulk_upsert([...])
-
-# Additive migration helpers
-Customer.objects.ensure_column("phone", str | None, nullable=True)
-Customer.objects.rename_table("customers_archive")
+```bash
+fx cron start .
+fx cron status .
+fx cron jobs .
+fx cron trigger <job_name> .
+fx cron generate .
+fx cron apply .
+fx cron stop .
 ```
 
-After `rename_table(...)` succeeds, the same `Model.objects` manager and
-schema helpers are immediately bound to the new table name.
+For centralized DevOps workflow organization:
 
-If your model contains a field named `password`, password values are automatically hashed on write, and instances receive `verify_password(...)`.
+```bash
+fx cron workspace .
+fx cron register deploy-workflow . --workflow-file ops/workflows/ci/deploy-workflow.yml --job nightly-build --target github_actions
+fx cron workflows .
+fx cron run-workflow deploy-workflow . --payload '{"env":"prod"}'
+```
+
+## Architecture
+
+- `functionals.cli`
+  Decorator-driven command registration, parser/dispatch, interactive shell, and plugin loading.
+
+- `functionals.db`
+  Decorator-driven persistence for Pydantic models with SQLAlchemy-backed storage and model manager patterns.
+
+- `functionals.cron`
+  Decorator-driven interval/cron/event jobs with async runtime and deployment artifact generation.
+
+- `functionals.fx`
+  Built-in operations layer for project structuring, environment lifecycle, plugin workflows, cron operations, health checks, and history.
+
+## Who This Is For
+
+- Backend engineers building internal tools and service utilities.
+- Platform and DevOps engineers standardizing automation workflows.
+- Teams building plugin-based command ecosystems for shared operations.
+- AI tooling teams that need a clear path from local workflows to managed automation.
+
+## Documentation
+
+- CLI manual: `src/functionals/cli/USAGE.md`
+- DB manual: `src/functionals/db/USAGE.md`
+- FX manual: `src/functionals/fx/USAGE.md`
+- Cron manual: `src/functionals/cron/USAGE.md` (if present in your version)
+
+## Roadmap and Planned Extensions
+
+Functionals is production-ready today and actively expanding into agentic tooling workflows. Planned additions include:
+
+- MCP support:
+  A decorator-based framework for defining and operating MCP servers.
+
+- Worktree data capabilities:
+  Structured storage/retrieval of project workspace state for tooling and automation contexts.
+
+- Data-structure library for AI tooling:
+  Graph and tree primitives (including knowledge graph patterns) for efficient lookup, relationship modeling, hierarchy traversal, and large-project representation.
+
+- LLM tooling decorators:
+  Decorator-driven tool definitions and memory/knowledge wiring for agent workflows.
+
+These additions are designed to work with the current `fx + cli + db + cron` architecture rather than replace it.
 
 ## Documentation
 
@@ -451,6 +478,22 @@ If your model contains a field named `password`, password values are automatical
 ## Testing
 
 - The default `pytest` suite includes SQLite coverage along with PostgreSQL/MySQL integration tests for rename-state behavior.
+- Run Docker Desktop, or another compatible Docker engine, before executing the backend integration suite so the services in `docker-compose.test-db.yml` can boot successfully.
+- The package is backed by a rigorous, production-focused test suite (170+ tests) covering unit behavior, edge cases, and multi-dialect integration scenarios.
+
+
+## License
+
+MIT
+ite includes SQLite coverage along with PostgreSQL/MySQL integration tests for rename-state behavior.
+- Run Docker Desktop, or another compatible Docker engine, before executing the backend integration suite so the services in `docker-compose.test-db.yml` can boot successfully.
+- The package is backed by a rigorous, production-focused test suite (170+ tests) covering unit behavior, edge cases, and multi-dialect integration scenarios.
+
+
+## License
+
+MIT
+uite includes SQLite coverage along with PostgreSQL/MySQL integration tests for rename-state behavior.
 - Run Docker Desktop, or another compatible Docker engine, before executing the backend integration suite so the services in `docker-compose.test-db.yml` can boot successfully.
 - The package is backed by a rigorous, production-focused test suite (170+ tests) covering unit behavior, edge cases, and multi-dialect integration scenarios.
 

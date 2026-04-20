@@ -139,6 +139,83 @@ __all__ = []
 """
 
 
+OPS_PACKAGE_INIT_TEMPLATE = """\"\"\"Operational workflows for __PROJECT_NAME__.\"\"\""""
+
+
+OPS_JOBS_INIT_TEMPLATE = """\"\"\"Centralized job registrations for __PROJECT_NAME__.\"\"\""""
+
+
+OPS_HEARTBEAT_JOB_TEMPLATE = """from __future__ import annotations
+
+import functionals.cron as cron
+
+
+@cron.job(
+    name="ops-heartbeat",
+    trigger=cron.interval(minutes=30),
+    target="local_async",
+    deployment_file="ops/workflows/cron/ops-heartbeat.cron",
+    tags=("ops", "health"),
+)
+def ops_heartbeat() -> str:
+    return "ops heartbeat ok"
+"""
+
+
+OPS_DEPLOY_JOB_TEMPLATE = """from __future__ import annotations
+
+import functionals.cron as cron
+
+
+@cron.job(
+    name="deploy-workflow",
+    trigger=cron.event("manual"),
+    target="github_actions",
+    deployment_file="ops/workflows/ci/deploy-workflow.yml",
+    tags=("deploy", "ci"),
+)
+def deploy_workflow(payload: dict | None = None) -> str:
+    env_name = (payload or {}).get("env", "staging")
+    return f"deploy requested for {env_name}"
+"""
+
+
+OPS_SCRIPT_TEMPLATE = """#!/usr/bin/env bash
+set -euo pipefail
+echo "[ops] Running deploy script for __PROJECT_NAME__"
+"""
+
+
+OPS_CRON_WORKFLOW_TEMPLATE = """# Managed by functionals.fx
+# Example Linux cron line for manual reference:
+# */30 * * * * cd __PROJECT_ROOT__ && fx cron trigger ops-heartbeat __PROJECT_ROOT__
+"""
+
+
+OPS_CI_WORKFLOW_TEMPLATE = """name: deploy-workflow
+on:
+  workflow_dispatch: {}
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Trigger local workflow registration
+        run: fx cron run-workflow deploy-workflow . --payload '{"env":"staging"}'
+"""
+
+
+OPS_WINDOWS_WORKFLOW_TEMPLATE = """<Task>
+  <Name>functionals-ops-heartbeat</Name>
+  <Trigger>*/30 * * * *</Trigger>
+  <Action>
+    <Command>python</Command>
+    <Arguments>-m functionals.fx.commands cron trigger ops-heartbeat .</Arguments>
+  </Action>
+</Task>
+"""
+
+
 CLI_MAIN_TEMPLATE = """from .todo import main
 
 
@@ -375,4 +452,3 @@ def render_template(template: str, **values: str) -> str:
     for key, value in values.items():
         rendered = rendered.replace(f"__{key.upper()}__", value)
     return rendered
-

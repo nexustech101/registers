@@ -486,3 +486,28 @@ def test_exec_requires_command_text(capsys):
 
     out = capsys.readouterr().out
     assert "'exec' requires a command to run." in out
+
+
+def test_interactive_shell_pretty_prints_structured_cron_result(capsys):
+    @cli.register(name="cron", description="Cron command")
+    def cron_cmd() -> str:
+        return "\n".join(
+            [
+                "FX Cron Status Result",
+                "Status: success",
+                "Project: /tmp/demo",
+                "Runtime: running",
+            ]
+        )
+
+    cli.run_shell(
+        input_fn=_input_from_lines(["cron", "quit"]),
+        print_result=True,
+        banner=False,
+        colors=True,
+    )
+
+    out = capsys.readouterr().out
+    assert "FX Cron Status Result" in out
+    assert "Status:" in out
+    assert "\x1b[" in out

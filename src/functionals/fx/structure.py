@@ -21,6 +21,14 @@ from functionals.fx.templates import (
     DB_PYPROJECT_TEMPLATE,
     DB_README_TEMPLATE,
     DB_TEST_TEMPLATE,
+    OPS_CI_WORKFLOW_TEMPLATE,
+    OPS_CRON_WORKFLOW_TEMPLATE,
+    OPS_DEPLOY_JOB_TEMPLATE,
+    OPS_HEARTBEAT_JOB_TEMPLATE,
+    OPS_JOBS_INIT_TEMPLATE,
+    OPS_PACKAGE_INIT_TEMPLATE,
+    OPS_SCRIPT_TEMPLATE,
+    OPS_WINDOWS_WORKFLOW_TEMPLATE,
     PACKAGE_INIT_TEMPLATE,
     render_template,
 )
@@ -105,11 +113,21 @@ def init_project_layout(*, root: Path, project_name: str, project_type: str, for
     script_name = dist_name
     package_root = root / "src" / pkg_name
     plugins_package = package_root / "plugins"
+    ops_package = package_root / "ops"
+    ops_jobs_package = ops_package / "jobs"
 
     ensure_directory(root / "src", created=created, skipped=skipped)
     ensure_directory(root / "tests", created=created, skipped=skipped)
     ensure_directory(package_root, created=created, skipped=skipped)
     ensure_package(plugins_package, created=created, skipped=skipped)
+    ensure_directory(root / "ops", created=created, skipped=skipped)
+    ensure_directory(root / "ops" / "workflows", created=created, skipped=skipped)
+    ensure_directory(root / "ops" / "workflows" / "cron", created=created, skipped=skipped)
+    ensure_directory(root / "ops" / "workflows" / "windows", created=created, skipped=skipped)
+    ensure_directory(root / "ops" / "workflows" / "ci", created=created, skipped=skipped)
+    ensure_directory(root / "ops" / "scripts", created=created, skipped=skipped)
+    ensure_directory(ops_package, created=created, skipped=skipped)
+    ensure_directory(ops_jobs_package, created=created, skipped=skipped)
     (root / ".fx").mkdir(parents=True, exist_ok=True)
 
     shared_values = {
@@ -118,11 +136,20 @@ def init_project_layout(*, root: Path, project_name: str, project_type: str, for
         "dist_name": dist_name,
         "script_name": script_name,
         "plugin_package": f"{pkg_name}.plugins",
+        "project_root": str(root),
     }
 
     files: dict[Path, str] = {
         root / ".gitignore": COMMON_GITIGNORE_TEMPLATE,
         root / "src" / pkg_name / "__init__.py": render_template(PACKAGE_INIT_TEMPLATE, **shared_values),
+        root / "src" / pkg_name / "ops" / "__init__.py": render_template(OPS_PACKAGE_INIT_TEMPLATE, **shared_values),
+        root / "src" / pkg_name / "ops" / "jobs" / "__init__.py": render_template(OPS_JOBS_INIT_TEMPLATE, **shared_values),
+        root / "src" / pkg_name / "ops" / "jobs" / "heartbeat.py": render_template(OPS_HEARTBEAT_JOB_TEMPLATE, **shared_values),
+        root / "src" / pkg_name / "ops" / "jobs" / "deploy.py": render_template(OPS_DEPLOY_JOB_TEMPLATE, **shared_values),
+        root / "ops" / "scripts" / "deploy.sh": render_template(OPS_SCRIPT_TEMPLATE, **shared_values),
+        root / "ops" / "workflows" / "cron" / "ops-heartbeat.cron": render_template(OPS_CRON_WORKFLOW_TEMPLATE, **shared_values),
+        root / "ops" / "workflows" / "ci" / "deploy-workflow.yml": render_template(OPS_CI_WORKFLOW_TEMPLATE, **shared_values),
+        root / "ops" / "workflows" / "windows" / "ops-heartbeat.xml": render_template(OPS_WINDOWS_WORKFLOW_TEMPLATE, **shared_values),
     }
 
     entry_path: Path | None = None

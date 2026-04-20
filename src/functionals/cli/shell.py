@@ -515,7 +515,7 @@ class InteractiveShell:
 
     def _print_command_result(self, command_name: str, result: Any) -> None:
         text = str(result)
-        if command_name in {"run", "install", "update", "pull"} and text.startswith("FX "):
+        if command_name in {"run", "install", "update", "pull", "cron"} and text.startswith("FX "):
             self._print_structured_result(text)
             return
         print(self._c(text, _C.GREEN))
