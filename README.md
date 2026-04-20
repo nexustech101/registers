@@ -18,7 +18,7 @@ Functionals is a DX-first Python framework for building:
 
 It uses decorators for command, model, and job definitions, and ships with `fx`, a built-in project manager for scaffolding, running, validating, and operating projects.
 
-This framework is for teams and developers who want one coherent toolkit for backend development and DevOps workflows instead of stitching together many unrelated layers.
+This framework is for teams and developers who want one coherent toolkit for backend development and DevOps workflows instead of stitching together many unrelated layers. Build, manage, and deploy at the speed of thought.
 
 ## Why Functionals
 
@@ -27,6 +27,7 @@ This framework is for teams and developers who want one coherent toolkit for bac
 - Operational workflow built in: run, install, update, pull plugins, and manage cron from `fx`.
 - Plugin architecture: organize command suites into modules and load them cleanly.
 - Production-minded behavior: structured state, health checks, operation history, and test coverage.
+- Projects that use `functionals.cli` module come with a built-in interactive shell.
 
 ## Install
 
