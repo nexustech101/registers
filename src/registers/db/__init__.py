@@ -56,25 +56,29 @@ from registers.db.fields import db_field
 from registers.db.security import hash_password, is_password_hash, verify_password
 
 __all__ = [
-    # Core
     "database_registry",
     "DatabaseRegistry",
     "db_field",
     "hash_password",
     "is_password_hash",
     "verify_password",
+
     # Relationships
     "HasMany",
     "BelongsTo",
     "HasManyThrough",
+
     # Schema evolution
     "SchemaManager",
+    
     # Engine management
     "get_engine",
     "dispose_engine",
     "dispose_all",
+
     # Config
     "RegistryConfig",
+    
     # Exceptions
     "RegistryError",
     "ConfigurationError",

@@ -4,11 +4,8 @@
 [![Python versions](https://img.shields.io/pypi/pyversions/registers)](https://pypi.org/project/registers/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Module](https://img.shields.io/badge/module-registers-green)](#registers)
-[![CLI](https://img.shields.io/badge/module-registers.cli-blue)](#architecture)
-[![DB](https://img.shields.io/badge/module-registers.db-darkorange)](#architecture)
-[![Cron](https://img.shields.io/badge/module-registers.cron-purple)](#architecture)
 [![FX Tool](https://img.shields.io/badge/tool-fx--tool-black)](https://github.com/nexustech101/fx-tool)
-![Tests](https://img.shields.io/badge/tests-200%2B%20unit%20tests-brightgreen)
+![Tests](https://img.shields.io/badge/tests-250%2B%20unit%20tests-brightgreen)
 
 Registers is a DX-first Python framework for building:
 
@@ -62,11 +59,16 @@ from __future__ import annotations
 
 from enum import StrEnum
 from time import strftime
-
-import registers.cli as cli
-import registers.db as db
-from registers.db import db_field
 from pydantic import BaseModel
+
+from registers import (
+    CommandRegistry,
+    DatabaseRegistry,
+    db_field
+)
+
+cli = CommandRegistry()
+db = DatabaseRegistry()
 
 DB_PATH = "todos.db"
 TABLE = "todos"
@@ -152,29 +154,6 @@ if __name__ == "__main__":
     )
 ```
 
-`registers.cli` also supports explicit instance-mode registries for isolated
-command scopes:
-
-```python
-import registers.cli as cli
-
-
-registry = cli.CommandRegistry()
-
-
-@registry.register(description="Say hello")
-@registry.argument("name", type=str)
-@registry.alias("--hello")
-def hello(name: str) -> str:
-    return f"Hello, {name}!"
-
-
-if __name__ == "__main__":
-    registry.run()
-```
-
-This pattern keeps plugin wiring deterministic and fails fast on command/alias collisions.
-
 Run it as follows:
 
 ```bash
@@ -226,7 +205,7 @@ from cli.commands.ops import cli as ops_cli
 from cli.commands.sessions import cli as sessions_cli
 from cli.commands.users import cli as users_cli
 
-from registers.cli import CommandRegistry
+from registers import CommandRegistry
 
 
 registry = CommandRegistry()
@@ -261,8 +240,9 @@ if __name__ == "__main__":
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-from registers.db import (
+from registers import (
     DatabaseRegistry,
+    db_field,
     RecordNotFoundError,
     UniqueConstraintError,
 )
@@ -270,7 +250,7 @@ from registers.db import (
 DB_URL = "sqlite:///shop.db"
 db = DatabaseRegistry()
 
-# --- Models ---
+# ---- Models ----
 
 @db.database_registry(DB_URL, table_name="customers", unique_fields=["email"])
 class Customer(BaseModel):
@@ -292,7 +272,7 @@ class Order(BaseModel):
     quantity: int
     total: float
 
-# --- App ---
+# ---- App ----
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -304,7 +284,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
-# --- Routes ---
+# ---- Routes ----
 
 @app.post("/customers", response_model=Customer, status_code=201)
 def create_customer(name: str, email: str):
@@ -343,51 +323,24 @@ curl -X POST "http://localhost:8000/customers" \
   -H "Content-Type: application/json" \
   -d '{"name": "Alice Johnson", "email": "alice@example.com"}'
 
-# Response
-{"id": 1, "name": "Alice Johnson", "email": "alice@example.com"}
-
-
 # GET /customers/1
 curl "http://localhost:8000/customers/1"
-
-# Response
-{"id": 1, "name": "Alice Johnson", "email": "alice@example.com"}
-
 
 # POST /products
 curl -X POST "http://localhost:8000/products" \
   -H "Content-Type: application/json" \
   -d '{"name": "Wireless Keyboard", "price": 49.99}'
 
-# Response
-{"id": 1, "name": "Wireless Keyboard", "price": 49.99}
-
-
 # POST /orders
 curl -X POST "http://localhost:8000/orders" \
   -H "Content-Type: application/json" \
   -d '{"customer_id": 1, "product_id": 1, "quantity": 2}'
 
-# Response
-{"id": 1, "customer_id": 1, "product_id": 1, "quantity": 2, "total": 99.98}
-
-
 # GET /orders/asc  (oldest first)
 curl "http://localhost:8000/orders/asc?limit=20&offset=0"
 
-# Response
-[
-  {"id": 1, "customer_id": 1, "product_id": 1, "quantity": 2, "total": 99.98}
-]
-
-
 # GET /orders/desc  (newest first)
 curl "http://localhost:8000/orders/desc?limit=20&offset=0"
-
-# Response
-[
-  {"id": 1, "customer_id": 1, "product_id": 1, "quantity": 2, "total": 99.98}
-]
 ```
 
 ## Cron + Workflow Operations
@@ -401,7 +354,9 @@ Both cron registration styles are supported:
 
 ```python
 # Module-level style
-import registers.cron as cron
+from registers import CronRegistry
+
+cron = CronRegistry()
 
 @cron.job
 def rebuild(payload: dict | None = None) -> str:
@@ -434,8 +389,13 @@ cron.register("nightly", root=".", apply=False)
 Self-contained CLI management:
 
 ```python
-import registers.cli as cli
-import registers.cron as cron
+from registers import (
+    CommandRegistry,
+    CronRegustry
+)
+
+cli = CommandRegistry()
+cron = CronRegistry()
 
 
 @cron.job(name="nightly", trigger=cron.cron("0 2 * * *"))
@@ -458,28 +418,6 @@ python app.py cron register nightly . --target auto --apply
 
 `--target auto` installs the appropriate platform scheduler target and the
 persistent command calls back into the same script with `cron run`.
-
-```python
-# Explicit instance style
-from registers.cron import CronRegistry
-
-cron = CronRegistry()
-
-@cron.job(
-    name="nightly",
-    trigger=cron.cron("0 2 * * *"),
-    target="local_async",
-    retry_policy="fixed",
-    retry_max_attempts=3,
-    retry_backoff_seconds=15,
-)
-def nightly() -> str:
-    return "ok"
-
-
-cron.run("nightly", root=".")
-cron.register("nightly", root=".", apply=False)
-```
 
 Retry-capable jobs are moved to `dead_letter` state when max attempts are exhausted.
 File-change jobs use the `watchdog` Python library under the daemon runtime.
