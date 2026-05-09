@@ -20,7 +20,7 @@ def test_autocreate_fk_registration_is_non_fatal_and_recovers(tmp_path):
 
     @database_registry(url, table_name="refresh_sessions", key_field="id")
     class RefreshSession(BaseModel):
-        id: int | None = None
+        id: int | None = db_field(id_strategy="autoincrement", default=None)
         user_id: int = db_field(foreign_key="users.id")
         token_jti: str
 
@@ -29,7 +29,7 @@ def test_autocreate_fk_registration_is_non_fatal_and_recovers(tmp_path):
 
     @database_registry(url, table_name="users", key_field="id")
     class User(BaseModel):
-        id: int | None = None
+        id: int | None = db_field(id_strategy="autoincrement", default=None)
         email: str
 
     # Later registration should create the now-resolvable FK graph.
@@ -42,7 +42,7 @@ def test_create_schema_strict_fk_unresolved_raises_actionable_error(tmp_path):
 
     @database_registry(url, table_name="refresh_sessions", key_field="id", auto_create=False)
     class RefreshSession(BaseModel):
-        id: int | None = None
+        id: int | None = db_field(id_strategy="autoincrement", default=None)
         user_id: int = db_field(foreign_key="users.id")
         token_jti: str
 
@@ -55,12 +55,12 @@ def test_create_schema_fk_succeeds_after_both_models_registered(tmp_path):
 
     @database_registry(url, table_name="users", key_field="id", auto_create=False)
     class User(BaseModel):
-        id: int | None = None
+        id: int | None = db_field(id_strategy="autoincrement", default=None)
         email: str
 
     @database_registry(url, table_name="refresh_sessions", key_field="id", auto_create=False)
     class RefreshSession(BaseModel):
-        id: int | None = None
+        id: int | None = db_field(id_strategy="autoincrement", default=None)
         user_id: int = db_field(foreign_key="users.id")
         token_jti: str
 
@@ -87,7 +87,7 @@ def test_upsert_primary_key_only_model_does_not_crash(tmp_path):
 def test_bulk_create_rejects_explicit_autoincrement_keys(tmp_path):
     @database_registry(db_url(tmp_path), table_name="users", key_field="id")
     class User(BaseModel):
-        id: int | None = None
+        id: int | None = db_field(id_strategy="autoincrement", default=None)
         name: str
 
     with pytest.raises(InvalidPrimaryKeyAssignmentError):
@@ -156,12 +156,12 @@ def test_fk_orphan_write_raises_schema_error(tmp_path):
 
     @database_registry(url, table_name="users", key_field="id")
     class User(BaseModel):
-        id: int | None = None
+        id: int | None = db_field(id_strategy="autoincrement", default=None)
         email: str
 
     @database_registry(url, table_name="refresh_sessions", key_field="id")
     class RefreshSession(BaseModel):
-        id: int | None = None
+        id: int | None = db_field(id_strategy="autoincrement", default=None)
         user_id: int = db_field(foreign_key="users.id")
         token_jti: str
 
@@ -176,7 +176,7 @@ def test_instance_registry_decorator_happy_path(tmp_path):
 
     @db.database_registry(db_url(tmp_path), table_name="users", key_field="id")
     class User(BaseModel):
-        id: int | None = None
+        id: int | None = db_field(id_strategy="autoincrement", default=None)
         email: str
 
     created = User.objects.create(email="alice@example.com")
@@ -192,12 +192,12 @@ def test_two_registry_instances_can_manage_different_databases(tmp_path):
 
     @db_one.database_registry(db_url(tmp_path, "one"), table_name="users_one", key_field="id")
     class UserOne(BaseModel):
-        id: int | None = None
+        id: int | None = db_field(id_strategy="autoincrement", default=None)
         email: str
 
     @db_two.database_registry(db_url(tmp_path, "two"), table_name="users_two", key_field="id")
     class UserTwo(BaseModel):
-        id: int | None = None
+        id: int | None = db_field(id_strategy="autoincrement", default=None)
         email: str
 
     UserOne.objects.create(email="one@example.com")
@@ -213,7 +213,7 @@ def test_same_model_cannot_be_registered_by_multiple_instances(tmp_path):
 
     @db_one.database_registry(db_url(tmp_path, "one"), table_name="users", key_field="id")
     class User(BaseModel):
-        id: int | None = None
+        id: int | None = db_field(id_strategy="autoincrement", default=None)
         email: str
 
     with pytest.raises(ModelRegistrationError, match="already registered by another"):

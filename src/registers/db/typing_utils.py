@@ -13,7 +13,7 @@ from typing import Any, get_args, get_origin
 from uuid import UUID
 
 from pydantic import TypeAdapter
-from sqlalchemy import JSON, Boolean, Date, DateTime, Float, Integer, Numeric, String
+from sqlalchemy import JSON, Boolean, Date, DateTime, Float, Integer, LargeBinary, Numeric, String
 from sqlalchemy.sql.type_api import TypeEngine
 
 DEFAULT_VARCHAR_LENGTH = 255
@@ -70,6 +70,11 @@ def annotation_is_integer(annotation: Any) -> bool:
     return resolved is int or (isinstance(resolved, type) and issubclass(resolved, int))
 
 
+def annotation_is_uuid(annotation: Any) -> bool:
+    resolved = unwrap_annotation(annotation)
+    return resolved is UUID or (isinstance(resolved, type) and issubclass(resolved, UUID))
+
+
 def field_allows_none(field: Any) -> bool:
     """Return True when the field's annotation includes NoneType."""
     annotation = field.annotation
@@ -84,16 +89,16 @@ def field_allows_none(field: Any) -> bool:
 # ---------------------------------------------------------------------------
 
 # Ordered most-specific first so issubclass probes work correctly.
-_DIRECT_MAP: list[tuple[type, TypeEngine]] = [
-    (bool,     Boolean()),
-    (int,      Integer()),
-    (float,    Float()),
-    (Decimal,  Numeric()),
-    (datetime, DateTime()),
-    (date,     Date()),
-    (UUID,     String(36)),
-    (str,      String(DEFAULT_VARCHAR_LENGTH)),
-    (bytes,    String(DEFAULT_VARCHAR_LENGTH)),   # store as hex / base64 string for SQLite
+_DIRECT_MAP: list[tuple[type, type[TypeEngine] | Any]] = [
+    (bool,     Boolean),
+    (int,      Integer),
+    (float,    Float),
+    (Decimal,  Numeric),
+    (datetime, DateTime),
+    (date,     Date),
+    (UUID,     lambda: String(36)),
+    (str,      lambda: String(DEFAULT_VARCHAR_LENGTH)),
+    (bytes,    LargeBinary),
 ]
 
 
@@ -101,11 +106,11 @@ def sqlalchemy_type_for_annotation(annotation: Any) -> TypeEngine[Any]:
     """Return the best SQLAlchemy column type for a Python type annotation."""
     resolved = unwrap_annotation(annotation)
 
-    for python_type, sa_type in _DIRECT_MAP:
+    for python_type, type_factory in _DIRECT_MAP:
         if resolved is python_type:
-            return sa_type
+            return type_factory()
         if isinstance(resolved, type) and issubclass(resolved, python_type):
-            return sa_type
+            return type_factory()
 
     # Fall back to Pydantic JSON schema for Enum, Literal, custom types etc.
     schema = _json_schema_for(resolved)
@@ -129,6 +134,39 @@ def sqlalchemy_type_for_annotation(annotation: Any) -> TypeEngine[Any]:
 
     # Unknown / complex types stored as JSON text
     return JSON()
+
+
+def sqlalchemy_type_for_field(annotation: Any, metadata: dict[str, Any] | None = None) -> TypeEngine[Any]:
+    """Return the SQLAlchemy type for a model field, honoring db_field metadata."""
+    metadata = metadata or {}
+    explicit_type = metadata.get("db_column_type")
+    if explicit_type is not None:
+        if isinstance(explicit_type, TypeEngine):
+            return explicit_type
+        if isinstance(explicit_type, type) and issubclass(explicit_type, TypeEngine):
+            return explicit_type()
+        if callable(explicit_type):
+            resolved = explicit_type()
+            if isinstance(resolved, TypeEngine):
+                return resolved
+        raise TypeError("db_field(column_type=...) must be a SQLAlchemy TypeEngine, TypeEngine class, or factory.")
+
+    resolved = unwrap_annotation(annotation)
+    length = metadata.get("db_length")
+    precision = metadata.get("db_precision")
+    scale = metadata.get("db_scale")
+    timezone = metadata.get("db_timezone")
+
+    if resolved is str or (isinstance(resolved, type) and issubclass(resolved, str)):
+        return String(length or DEFAULT_VARCHAR_LENGTH)
+    if resolved is bytes or (isinstance(resolved, type) and issubclass(resolved, bytes)):
+        return LargeBinary(length)
+    if resolved is Decimal or (isinstance(resolved, type) and issubclass(resolved, Decimal)):
+        return Numeric(precision=precision, scale=scale)
+    if resolved is datetime or (isinstance(resolved, type) and issubclass(resolved, datetime)):
+        return DateTime(timezone=bool(timezone))
+
+    return sqlalchemy_type_for_annotation(annotation)
 
 
 def _json_schema_for(annotation: Any) -> dict[str, Any]:

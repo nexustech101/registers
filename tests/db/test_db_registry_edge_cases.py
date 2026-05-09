@@ -21,6 +21,7 @@ from registers.db import (
     InvalidPrimaryKeyAssignmentError,
     UniqueConstraintError,
     database_registry,
+    db_field,
     is_password_hash,
 )
 
@@ -29,7 +30,7 @@ class TestSchemaMappingIntegrity:
     def test_alias_private_and_computed_fields_do_not_become_columns(self, tmp_path):
         @database_registry(db_url(tmp_path), table_name="widgets", key_field="id")
         class Widget(BaseModel):
-            id: int | None = None
+            id: int | None = db_field(id_strategy="autoincrement", default=None)
             name: str = Field(alias="widget_name")
             is_active: bool = True
             _cache: str = PrivateAttr(default="cached")
@@ -50,7 +51,7 @@ class TestSchemaMappingIntegrity:
     def test_optional_and_defaulted_fields_keep_expected_nullability(self, tmp_path):
         @database_registry(db_url(tmp_path), table_name="profiles", key_field="id")
         class Profile(BaseModel):
-            id: int | None = None
+            id: int | None = db_field(id_strategy="autoincrement", default=None)
             display_name: str
             nickname: str | None = None
             is_active: bool = True
@@ -73,7 +74,7 @@ class TestDataIntegrityBoundaries:
             unique_fields=["email"],
         )
         class User(BaseModel):
-            id: int | None = None
+            id: int | None = db_field(id_strategy="autoincrement", default=None)
             name: str
             email: str
 
@@ -92,7 +93,7 @@ class TestDataIntegrityBoundaries:
             unique_fields=["email"],
         )
         class User(BaseModel):
-            id: int | None = None
+            id: int | None = db_field(id_strategy="autoincrement", default=None)
             email: str
 
         User.objects.create(email="alice@example.com")
@@ -103,7 +104,7 @@ class TestDataIntegrityBoundaries:
     def test_post_read_validation_surfaces_invalid_database_rows(self, tmp_path):
         @database_registry(db_url(tmp_path), table_name="events", key_field="id")
         class Event(BaseModel):
-            id: int | None = None
+            id: int | None = db_field(id_strategy="autoincrement", default=None)
             score: int
 
         with Event.objects._engine.begin() as conn:
@@ -112,12 +113,12 @@ class TestDataIntegrityBoundaries:
         with pytest.raises(ValidationError):
             Event.objects.require(1)
 
-    def test_password_fields_are_hashed_automatically(self, tmp_path):
+    def test_password_fields_are_hashed_when_explicitly_configured(self, tmp_path):
         @database_registry(db_url(tmp_path), table_name="accounts", key_field="id")
         class Account(BaseModel):
-            id: int | None = None
+            id: int | None = db_field(id_strategy="autoincrement", default=None)
             email: str
-            password: str
+            password: str = db_field(hash_password=True)
 
         account = Account.objects.create(email="alice@example.com", password="secret123")
 
@@ -129,9 +130,9 @@ class TestDataIntegrityBoundaries:
     def test_password_is_rehashed_only_when_changed(self, tmp_path):
         @database_registry(db_url(tmp_path), table_name="accounts", key_field="id")
         class Account(BaseModel):
-            id: int | None = None
+            id: int | None = db_field(id_strategy="autoincrement", default=None)
             email: str
-            password: str
+            password: str = db_field(hash_password=True)
 
         account = Account.objects.create(email="alice@example.com", password="secret123")
         original_hash = account.password
@@ -149,9 +150,9 @@ class TestDataIntegrityBoundaries:
     def test_update_where_hashes_password_updates(self, tmp_path):
         @database_registry(db_url(tmp_path), table_name="accounts", key_field="id")
         class Account(BaseModel):
-            id: int | None = None
+            id: int | None = db_field(id_strategy="autoincrement", default=None)
             email: str
-            password: str
+            password: str = db_field(hash_password=True)
 
         account = Account.objects.create(email="alice@example.com", password="secret123")
         updated = Account.objects.update_where({"id": account.id}, password="rotated-secret")
@@ -166,7 +167,7 @@ class TestSpecifiedPrimaryKeyPolicy:
     def test_auto_pk_rejects_explicit_id_assignment(self, tmp_path):
         @database_registry(db_url(tmp_path), table_name="users", key_field="id")
         class User(BaseModel):
-            id: int | None = None
+            id: int | None = db_field(id_strategy="autoincrement", default=None)
             name: str
 
         with pytest.raises(InvalidPrimaryKeyAssignmentError):
@@ -175,7 +176,7 @@ class TestSpecifiedPrimaryKeyPolicy:
     def test_primary_key_mutation_is_rejected(self, tmp_path):
         @database_registry(db_url(tmp_path), table_name="users", key_field="id")
         class User(BaseModel):
-            id: int | None = None
+            id: int | None = db_field(id_strategy="autoincrement", default=None)
             name: str
 
         user = User.objects.create(name="Alice")
@@ -192,7 +193,7 @@ class TestSpecifiedPrimaryKeyPolicy:
             unique_fields=["email"],
         )
         class User(BaseModel):
-            id: int | None = None
+            id: int | None = db_field(id_strategy="autoincrement", default=None)
             name: str
             email: str
 
@@ -206,7 +207,7 @@ class TestSpecifiedPrimaryKeyPolicy:
     def test_deleted_autoincrement_ids_are_not_reused(self, tmp_path):
         @database_registry(db_url(tmp_path), table_name="users", key_field="id")
         class User(BaseModel):
-            id: int | None = None
+            id: int | None = db_field(id_strategy="autoincrement", default=None)
             name: str
 
         first = User.objects.create(name="Alice")
@@ -223,7 +224,7 @@ class TestQueryAndRelationshipGaps:
     def test_filter_rejects_values_with_incorrect_field_types(self, tmp_path):
         @database_registry(db_url(tmp_path), table_name="people", key_field="id")
         class Person(BaseModel):
-            id: int | None = None
+            id: int | None = db_field(id_strategy="autoincrement", default=None)
             age: int
 
         Person.objects.create(age=42)
@@ -236,18 +237,18 @@ class TestQueryAndRelationshipGaps:
 
         @database_registry(url, table_name="tags", key_field="id")
         class Tag(BaseModel):
-            id: int | None = None
+            id: int | None = db_field(id_strategy="autoincrement", default=None)
             name: str
 
         @database_registry(url, table_name="post_tags", key_field="id")
         class PostTag(BaseModel):
-            id: int | None = None
+            id: int | None = db_field(id_strategy="autoincrement", default=None)
             post_id: int
             tag_id: int
 
         @database_registry(url, table_name="posts", key_field="id")
         class Post(BaseModel):
-            id: int | None = None
+            id: int | None = db_field(id_strategy="autoincrement", default=None)
             title: str
 
         Post.tags = HasManyThrough(

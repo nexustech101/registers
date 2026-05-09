@@ -38,6 +38,7 @@ from registers.db import (
     RelationshipError,
     UniqueConstraintError,
     database_registry,
+    db_field,
 )
 
 
@@ -169,7 +170,7 @@ class TestCreate:
         @database_registry(db_url(tmp_path), table_name="users", key_field="id",
                            autoincrement=True)
         class User(BaseModel):
-            id: int | None = None
+            id: int | None = db_field(id_strategy="autoincrement", default=None)
             name: str
 
         u1 = User.objects.create(name="Alice")
@@ -585,7 +586,7 @@ class TestDirectRegistry:
             unique_fields=("email",),
         )
         class User(BaseModel):
-            id: int | None = None
+            id: int | None = db_field(id_strategy="autoincrement", default=None)
             email: str
 
         registry = User.objects
@@ -884,11 +885,11 @@ class TestTypeMapping:
     def test_id_field_autoincrement(self, tmp_path):
         @database_registry(db_url(tmp_path), table_name="users", key_field="id")
         class User(BaseModel):
-            id: int | None = None
+            id: int | None = db_field(id_strategy="autoincrement", default=None)
             name: str
             nickname: str | None = None
 
-        # `id: int | None = None` opts into the default DB-assigned PK strategy.
+        # `id: int | None = db_field(id_strategy="autoincrement", default=None)` opts into the default DB-assigned PK strategy.
         USERS = [
             {"name": "Alice", "nickname": None},  # Should generate id=1
             {"name": "Bobby", "nickname": None},  # Should generate id=2

@@ -5,14 +5,14 @@ from pydantic import BaseModel
 from sqlalchemy import inspect
 
 from conftest import db_url
-from registers.db import MigrationError, database_registry
+from registers.db import MigrationError, database_registry, db_field
 
 
 class TestRenameTableStateSync:
     def test_rename_table_updates_registry_state(self, tmp_path):
         @database_registry(db_url(tmp_path), table_name="users", key_field="id")
         class User(BaseModel):
-            id: int | None = None
+            id: int | None = db_field(id_strategy="autoincrement", default=None)
             name: str
 
         User.objects.create(name="Alice")
@@ -31,7 +31,7 @@ class TestRenameTableStateSync:
     def test_rename_table_then_schema_exists_uses_new_name(self, tmp_path):
         @database_registry(db_url(tmp_path), table_name="events", key_field="id")
         class Event(BaseModel):
-            id: int | None = None
+            id: int | None = db_field(id_strategy="autoincrement", default=None)
             title: str
 
         assert Event.schema_exists() is True
@@ -46,7 +46,7 @@ class TestRenameTableStateSync:
     def test_rename_table_preserves_existing_data(self, tmp_path):
         @database_registry(db_url(tmp_path), table_name="people", key_field="id")
         class Person(BaseModel):
-            id: int | None = None
+            id: int | None = db_field(id_strategy="autoincrement", default=None)
             name: str
 
         alice = Person.objects.create(name="Alice")
@@ -62,7 +62,7 @@ class TestRenameTableStateSync:
     def test_rename_table_allows_new_crud_operations(self, tmp_path):
         @database_registry(db_url(tmp_path), table_name="accounts", key_field="id")
         class Account(BaseModel):
-            id: int | None = None
+            id: int | None = db_field(id_strategy="autoincrement", default=None)
             email: str
 
         original = Account.objects.create(email="alice@example.com")
@@ -81,7 +81,7 @@ class TestRenameTableStateSync:
     def test_rename_table_invalidates_old_table_references(self, tmp_path):
         @database_registry(db_url(tmp_path), table_name="items", key_field="id")
         class Item(BaseModel):
-            id: int | None = None
+            id: int | None = db_field(id_strategy="autoincrement", default=None)
             name: str
 
         Item.objects.create(name="A")
@@ -96,12 +96,12 @@ class TestRenameTableStateSync:
 
         @database_registry(url, table_name="users", key_field="id")
         class User(BaseModel):
-            id: int | None = None
+            id: int | None = db_field(id_strategy="autoincrement", default=None)
             name: str
 
         @database_registry(url, table_name="users_archive", key_field="id")
         class Archive(BaseModel):
-            id: int | None = None
+            id: int | None = db_field(id_strategy="autoincrement", default=None)
             name: str
 
         User.objects.create(name="Alice")
@@ -117,7 +117,7 @@ class TestRenameTableStateSync:
     def test_rename_table_failure_does_not_corrupt_registry_state(self, tmp_path, monkeypatch):
         @database_registry(db_url(tmp_path), table_name="users", key_field="id")
         class User(BaseModel):
-            id: int | None = None
+            id: int | None = db_field(id_strategy="autoincrement", default=None)
             name: str
 
         User.objects.create(name="Alice")
@@ -138,7 +138,7 @@ class TestRenameTableStateSync:
     def test_bulk_upsert_after_rename(self, tmp_path):
         @database_registry(db_url(tmp_path), table_name="users", key_field="id")
         class User(BaseModel):
-            id: int | None = None
+            id: int | None = db_field(id_strategy="autoincrement", default=None)
             email: str
 
         first = User.objects.create(email="a@example.com")

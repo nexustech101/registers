@@ -10,13 +10,19 @@ import types
 from typing import Any, Literal, Union, get_args, get_origin
 
 from registers.cli.registry import ArgumentEntry, CommandEntry, MISSING
+from registers.cli.types import CliTypeError
 
 
 class ParseError(ValueError):
     """Raised when command arguments cannot be parsed."""
 
 
-def parse_command_args(entry: CommandEntry, tokens: list[str]) -> dict[str, Any]:
+def parse_command_args(
+    entry: CommandEntry,
+    tokens: list[str],
+    *,
+    allow_missing_prompts: bool = False,
+) -> dict[str, Any]:
     """Parse raw CLI tokens (after command token) into handler kwargs."""
 
     named_flags = _named_argument_flags(entry.arguments)
@@ -93,6 +99,9 @@ def parse_command_args(entry: CommandEntry, tokens: list[str]) -> dict[str, Any]
             values[arg.name] = None
             continue
 
+        if allow_missing_prompts and arg.prompt:
+            continue
+
         raise ParseError(f"Missing required argument '{arg.name}'.")
 
     return values
@@ -131,8 +140,26 @@ def _named_argument_flags(arguments: tuple[ArgumentEntry, ...]) -> dict[str, Arg
     return flags
 
 
+def named_argument_flags(arguments: tuple[ArgumentEntry, ...]) -> dict[str, ArgumentEntry]:
+    """Public helper for registry runtime option conflict checks."""
+    return _named_argument_flags(arguments)
+
+
+def coerce_value(raw: str, annotation: Any, arg_name: str) -> Any:
+    """Public helper for context/prompt parsing."""
+    return _coerce_value(raw, annotation, arg_name)
+
+
 def _coerce_value(raw: str, annotation: Any, arg_name: str) -> Any:
     target = _unwrap_optional(annotation)
+    if isinstance(target, str):
+        target = {"str": str, "int": int, "float": float, "bool": bool}.get(target, str)
+    parser = getattr(target, "parse", None)
+    if callable(parser):
+        try:
+            return parser(raw)
+        except CliTypeError as exc:
+            raise ParseError(f"Invalid value for '{arg_name}'. {exc}") from exc
 
     if target in (Any, inspect.Parameter.empty):
         return raw

@@ -25,9 +25,10 @@ Limitations
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 import logging
 import sqlite3
-from typing import Any
+from typing import Any, Mapping
 
 from sqlalchemy import (
     JSON,
@@ -52,6 +53,39 @@ from registers.db.exceptions import MigrationError, SchemaError
 from registers.db.typing_utils import sqlalchemy_type_for_annotation
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class SchemaDiff:
+    """Schema drift report for one registered table."""
+
+    table_name: str
+    missing_table: bool = False
+    missing_columns: list[str] | None = None
+    extra_columns: list[str] | None = None
+    nullable_mismatches: list[str] | None = None
+    type_mismatches: dict[str, tuple[str, str]] | None = None
+
+    @property
+    def ok(self) -> bool:
+        return not (
+            self.missing_table
+            or self.missing_columns
+            or self.extra_columns
+            or self.nullable_mismatches
+            or self.type_mismatches
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "table_name": self.table_name,
+            "missing_table": self.missing_table,
+            "missing_columns": self.missing_columns or [],
+            "extra_columns": self.extra_columns or [],
+            "nullable_mismatches": self.nullable_mismatches or [],
+            "type_mismatches": self.type_mismatches or {},
+            "ok": self.ok,
+        }
 
 
 def _quote_identifier(engine: Engine, identifier: str) -> str:
@@ -325,6 +359,57 @@ class SchemaManager:
         """Return the current column names from live database inspection."""
         inspector = inspect(self._engine)
         return [col["name"] for col in inspector.get_columns(self._table_name)]
+
+    def diff(self) -> SchemaDiff:
+        """Compare the registered table definition with the live database table."""
+        inspector = inspect(self._engine)
+        if not inspector.has_table(self._table_name):
+            return SchemaDiff(
+                table_name=self._table_name,
+                missing_table=True,
+                missing_columns=[column.name for column in self._table.columns],
+                extra_columns=[],
+                nullable_mismatches=[],
+                type_mismatches={},
+            )
+
+        live_columns: Mapping[str, Mapping[str, Any]] = {
+            str(column["name"]): column
+            for column in inspector.get_columns(self._table_name)
+        }
+        expected_columns = {column.name: column for column in self._table.columns}
+        missing = [name for name in expected_columns if name not in live_columns]
+        extra = [name for name in live_columns if name not in expected_columns]
+        nullable_mismatches: list[str] = []
+        type_mismatches: dict[str, tuple[str, str]] = {}
+
+        for name, expected in expected_columns.items():
+            live = live_columns.get(name)
+            if live is None:
+                continue
+
+            live_nullable = bool(live.get("nullable", True))
+            if not expected.primary_key and live_nullable != bool(expected.nullable):
+                nullable_mismatches.append(name)
+
+            expected_type = expected.type.compile(dialect=self._engine.dialect).lower()
+            live_type_obj = live.get("type")
+            live_type = (
+                live_type_obj.compile(dialect=self._engine.dialect).lower()
+                if hasattr(live_type_obj, "compile")
+                else str(live_type_obj).lower()
+            )
+            if expected_type != live_type:
+                type_mismatches[name] = (expected_type, live_type)
+
+        return SchemaDiff(
+            table_name=self._table_name,
+            missing_table=False,
+            missing_columns=missing,
+            extra_columns=extra,
+            nullable_mismatches=nullable_mismatches,
+            type_mismatches=type_mismatches,
+        )
 
     def sqlite_version_supports_drop_column(self) -> bool:
         """

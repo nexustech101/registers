@@ -4,7 +4,7 @@ import pytest
 from pydantic import BaseModel
 
 from conftest import db_url
-from registers.db import RecordNotFoundError, SchemaError, database_registry
+from registers.db import RecordNotFoundError, SchemaError, database_registry, db_field
 from registers.db.exceptions import RegistryError
 
 
@@ -33,7 +33,7 @@ class TestExceptionContext:
     def test_require_error_contains_criteria_context(self, tmp_path):
         @database_registry(db_url(tmp_path), table_name="users", key_field="id")
         class User(BaseModel):
-            id: int | None = None
+            id: int | None = db_field(id_strategy="autoincrement", default=None)
             email: str
 
         with pytest.raises(RecordNotFoundError) as exc_info:

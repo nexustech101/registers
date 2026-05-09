@@ -30,14 +30,21 @@ Instance-mode is also supported for isolated command scopes:
 from registers.cli.container import DIContainer
 from registers.cli.decorators import (
     argument,
+    confirm,
+    context_factory,
+    dry_run,
+    group,
     get_registry,
     list_commands,
     option,
     alias,
+    progress,
     register,
     reset_registry,
     run,
+    run_async,
     run_shell,
+    spinner,
 )
 from registers.cli.dispatcher import Dispatcher
 from registers.cli.exceptions import (
@@ -56,6 +63,8 @@ from registers.cli.middleware import (
 from registers.cli.parser import ParseError, parse_command_args
 from registers.cli.plugins import load_plugins
 from registers.cli.registry import ArgumentEntry, CommandEntry, CommandRegistry, MISSING
+from registers.cli.ux import Context, Progress, Theme, console, style
+from registers.cli import types
 
 __all__ = [
     # Module-level command API
@@ -63,7 +72,14 @@ __all__ = [
     "argument",
     "option",
     "alias",
+    "group",
+    "spinner",
+    "progress",
+    "confirm",
+    "dry_run",
+    "context_factory",
     "run",
+    "run_async",
     "run_shell",
     "list_commands",
     "get_registry",
@@ -74,6 +90,12 @@ __all__ = [
     "CommandEntry",
     "ArgumentEntry",
     "MISSING",
+    "Theme",
+    "Context",
+    "console",
+    "style",
+    "Progress",
+    "types",
     "parse_command_args",
     "ParseError",
 

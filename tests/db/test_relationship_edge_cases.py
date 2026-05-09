@@ -3,7 +3,7 @@ from __future__ import annotations
 from pydantic import BaseModel
 
 from conftest import db_url
-from registers.db import BelongsTo, HasMany, database_registry
+from registers.db import BelongsTo, HasMany, database_registry, db_field
 
 
 class TestRelationshipEdgeCases:
@@ -12,12 +12,12 @@ class TestRelationshipEdgeCases:
 
         @database_registry(url, table_name="authors", key_field="id")
         class Author(BaseModel):
-            id: int | None = None
+            id: int | None = db_field(id_strategy="autoincrement", default=None)
             name: str
 
         @database_registry(url, table_name="posts", key_field="id")
         class Post(BaseModel):
-            id: int | None = None
+            id: int | None = db_field(id_strategy="autoincrement", default=None)
             author_id: int | None = None
             title: str
 
@@ -35,12 +35,12 @@ class TestRelationshipEdgeCases:
 
         @database_registry(url, table_name="authors", key_field="id")
         class Author(BaseModel):
-            id: int | None = None
+            id: int | None = db_field(id_strategy="autoincrement", default=None)
             name: str
 
         @database_registry(url, table_name="posts", key_field="id")
         class Post(BaseModel):
-            id: int | None = None
+            id: int | None = db_field(id_strategy="autoincrement", default=None)
             author_id: int
             title: str
 

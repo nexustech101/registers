@@ -1,12 +1,12 @@
 ```text
-██████╗ ███████╗ ██████╗ ██╗███████╗████████╗███████╗██████╗ ███████╗
-██╔══██╗██╔════╝██╔════╝ ██║██╔════╝╚══██╔══╝██╔════╝██╔══██╗██╔════╝
-██████╔╝█████╗  ██║  ███╗██║███████╗   ██║   █████╗  ██████╔╝███████╗
-██╔══██╗██╔══╝  ██║   ██║██║╚════██║   ██║   ██╔══╝  ██╔══██╗╚════██║
-██║  ██║███████╗╚██████╔╝██║███████║   ██║   ███████╗██║  ██║███████║
-╚═╝  ╚═╝╚══════╝ ╚═════╝ ╚═╝╚══════╝   ╚═╝   ╚══════╝╚═╝  ╚═╝╚══════╝
+                                ██████╗ ███████╗ ██████╗ ██╗███████╗████████╗███████╗██████╗ ███████╗
+                                ██╔══██╗██╔════╝██╔════╝ ██║██╔════╝╚══██╔══╝██╔════╝██╔══██╗██╔════╝
+                                ██████╔╝█████╗  ██║  ███╗██║███████╗   ██║   █████╗  ██████╔╝███████╗
+                                ██╔══██╗██╔══╝  ██║   ██║██║╚════██║   ██║   ██╔══╝  ██╔══██╗╚════██║
+                                ██║  ██║███████╗╚██████╔╝██║███████║   ██║   ███████╗██║  ██║███████║
+                                ╚═╝  ╚═╝╚══════╝ ╚═════╝ ╚═╝╚══════╝   ╚═╝   ╚══════╝╚═╝  ╚═╝╚══════╝
 
-     Decorator-first Python infrastructure for CLIs, persistence, and automation.
+                            Decorator-first Python infrastructure for CLIs, persistence, and automation.
 ```
 
 <div align="center">
@@ -18,7 +18,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-7C3AED?labelColor=111827\&style=for-the-badge)](LICENSE)
 [![SQLAlchemy](https://img.shields.io/badge/Powered%20by-SQLAlchemy-D97706?labelColor=111827\&style=for-the-badge)](https://www.sqlalchemy.org/)
 [![Pydantic](https://img.shields.io/badge/Pydantic-v2-E92063?labelColor=111827\&style=for-the-badge)](https://docs.pydantic.dev/)
-[![Tests](https://img.shields.io/badge/Tests-250%2B-2563EB?labelColor=111827\&style=for-the-badge)](#testing)
+[![Tests](https://img.shields.io/badge/Tests-290%2B-2563EB?labelColor=111827\&style=for-the-badge)](#testing)
 
 `registers.cli` · `registers.db` · `registers.cron` · `fx-tool`
 
@@ -85,7 +85,7 @@ That consistency makes small projects faster to start and medium projects easier
 | **Registry isolation**           | Use module-level facades for small projects or owned registry instances for tests, plugins, tenants, and multi-surface apps. |
 | **Pydantic-first persistence**   | Persist Pydantic models without full ORM boilerplate while retaining SQLAlchemy-powered storage.                             |
 | **Manager-style CRUD**           | Use `Model.objects.create`, `require`, `filter`, `upsert`, `bulk_create`, `bulk_upsert`, and schema helpers.                 |
-| **CLI command runtime**          | Build scriptable CLIs, interactive shells, aliases, help output, plugins, DI, middleware, and dispatch workflows.            |
+| **CLI command runtime**          | Build scriptable CLIs, grouped operator consoles, Rich output, async commands, prompts, safety gates, plugins, DI, middleware, and dispatch workflows. |
 | **Cron/event automation**        | Define manual, interval, cron-expression, webhook, and file-change jobs with retries and runtime state.                      |
 | **Production error semantics**   | Structured exceptions, deterministic parse failures, duplicate/collision detection, and dead-letter states.                  |
 | **FastAPI-ready patterns**       | Use lifespan hooks, exception handlers, service-layer invariants, and manager-based persistence.                             |
@@ -100,6 +100,14 @@ Install Registers:
 ```bash
 pip install registers
 ```
+
+Install optional CLI presentation features:
+
+```bash
+pip install "registers[cli]"
+```
+
+The `cli` extra enables Rich rendering and prompt_toolkit shell enhancements while preserving plain-text fallback behavior when those packages are not installed.
 
 Install the companion project manager:
 
@@ -118,6 +126,79 @@ Clone the companion repository directly:
 ```bash
 git clone https://github.com/nexustech101/fx.git
 ```
+
+---
+
+## `registers.cli` Expanded Runtime
+
+`registers.cli` now supports the full decorator-first CLI roadmap: grouped commands, nested aliases, output modes, extended argument types, async handlers, context injection, prompts, confirmations, dry runs, Rich rendering, progress/status helpers, log capture, and interactive shell transforms.
+
+```python
+from __future__ import annotations
+
+from registers import CommandRegistry
+from registers.cli import Context, types as t
+
+cli = CommandRegistry()
+
+
+class AppContext(Context):
+    def __init__(self, env: str) -> None:
+        self.env = env
+
+
+@cli.context_factory
+def build_context(env: str = "prod") -> AppContext:
+    return AppContext(env)
+
+
+users = cli.group("users", aliases=["u"], tags=["users"])
+ops = cli.group("ops", aliases=["o"], tags=["ops"])
+
+
+@users.register(
+    "create",
+    description="Create a user account",
+    examples=['users create ada@example.com --role admin'],
+    default_output="json",
+)
+@users.argument("email", type=str, help="User email")
+@users.argument("role", type=t.Choice(["member", "admin"]), default="member")
+async def create_user(ctx: AppContext, email: str, role: str = "member") -> dict:
+    return {"env": ctx.env, "email": email, "role": role}
+
+
+@ops.register("migrate", description="Run user migration", tags=["danger"])
+@ops.dry_run()
+@ops.confirm("Run migration?", confirm_phrase="migrate")
+async def migrate(ctx: AppContext, dry_run: bool = False) -> str:
+    if dry_run:
+        return f"[dry-run] Would migrate users in {ctx.env}."
+    return f"Migrated users in {ctx.env}."
+
+
+if __name__ == "__main__":
+    cli.run(
+        shell_title="Admin CLI",
+        shell_description="Operate account workflows.",
+        shell_usage=True,
+        rich=True,
+    )
+```
+
+Run:
+
+```bash
+python app.py --env staging users create ada@example.com --role admin
+python app.py --env staging u create ada@example.com --output json
+python app.py --env staging ops migrate --dry-run --force
+python app.py help users
+python app.py --interactive
+```
+
+Interactive shell built-ins include `help`, `commands`, `exec`, `watch`, `pipe`, `exit`, and `quit`. Runtime output flags include `--output json`, `--output csv`, `--output rich`, `--output plain`, `--quiet`, and `--no-color`; framework aliases such as `--cli-output` are available when a command owns a conflicting argument name.
+
+For the exhaustive CLI manual, see `src/registers/cli/USAGE.md`.
 
 ---
 
@@ -155,7 +236,7 @@ class TodoStatus(StrEnum):
 
 @db.database_registry(DB_PATH, table_name="todos", key_field="id")
 class TodoItem(BaseModel):
-    id: int | None = None
+    id: int | None = db_field(id_strategy="autoincrement", default=None)
     title: str = db_field(index=True)
     description: str = db_field(default="")
     status: TodoStatus = db_field(default=TodoStatus.PENDING.value)
@@ -251,6 +332,72 @@ Run without arguments to enter the interactive shell:
 python todo.py
 ```
 
+Database IDs and credential hashing are explicit at the field definition:
+
+```python
+from uuid import UUID
+from registers import db_field
+
+id: int | None = db_field(id_strategy="autoincrement", default=None)
+public_id: UUID | None = db_field(id_strategy="uuid4", default=None)
+password: str = db_field(hash_password=True)
+```
+
+Plain `password` fields are stored as plain strings. Use `hash_password=True` only for credential fields that should be hashed on create, save, upsert, and `update_where`.
+
+Password hashing defaults to PBKDF2-SHA256 with a configurable policy. Use `PasswordHashPolicy`, `configure_password_policy()`, and `verify_and_upgrade_password()` when you need stronger deployment-specific settings or login-time hash upgrades.
+
+Use UUID primary keys for public-facing or distributed records:
+
+```python
+from uuid import UUID
+
+from pydantic import BaseModel
+from registers import DatabaseRegistry, db_field
+
+db = DatabaseRegistry()
+
+@db.database_registry("sqlite:///app.db", table_name="api_keys", key_field="id")
+class ApiKey(BaseModel):
+    id: UUID | None = db_field(id_strategy="uuid4", default=None)
+    name: str
+    owner_email: str
+
+api_key = ApiKey.objects.create(name="Production", owner_email="ops@example.com")
+assert isinstance(api_key.id, UUID)
+```
+
+Relationship descriptors support both original and cardinality-explicit names:
+
+```python
+from registers import ManyToMany, ManyToOne, OneToMany, prefetch
+
+Author.posts = OneToMany(Post, foreign_key="author_id")
+Post.author = ManyToOne(Author, local_key="author_id")
+Post.tags = ManyToMany(Tag, through=PostTag, source_key="post_id", target_key="tag_id")
+
+prefetch(Post.objects.all(), "tags")  # batch-load list-view relationships
+```
+
+Use `db_field(foreign_key="table.column", index=True)` on child keys when the database should reject orphans and relationship lookups need an index.
+
+For production services, keep the quickstart ergonomics but make lifecycle explicit:
+
+```python
+db = DatabaseRegistry()
+
+@db.database_registry("sqlite:///app.db", table_name="users", auto_create=False)
+class User(BaseModel):
+    id: int | None = db_field(id_strategy="autoincrement", default=None)
+    email: str
+
+db.create_all()
+db.assert_schema_current()
+
+with db.transaction():
+    user = User.objects.create(email="alice@example.com")
+```
+
 ---
 
 ## Quick Start: Database + FastAPI Service
@@ -265,7 +412,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from pydantic import BaseModel
 
-from registers import DatabaseRegistry, RecordNotFoundError, UniqueConstraintError
+from registers import DatabaseRegistry, RecordNotFoundError, UniqueConstraintError, db_field
 
 DB_URL = "sqlite:///shop.db"
 db = DatabaseRegistry()
@@ -273,21 +420,21 @@ db = DatabaseRegistry()
 
 @db.database_registry(DB_URL, table_name="customers", unique_fields=["email"])
 class Customer(BaseModel):
-    id: int | None = None
+    id: int | None = db_field(id_strategy="autoincrement", default=None)
     name: str
     email: str
 
 
 @db.database_registry(DB_URL, table_name="products")
 class Product(BaseModel):
-    id: int | None = None
+    id: int | None = db_field(id_strategy="autoincrement", default=None)
     name: str
     price: float
 
 
 @db.database_registry(DB_URL, table_name="orders")
 class Order(BaseModel):
-    id: int | None = None
+    id: int | None = db_field(id_strategy="autoincrement", default=None)
     customer_id: int
     product_id: int
     quantity: int

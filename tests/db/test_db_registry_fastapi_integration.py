@@ -24,6 +24,7 @@ from registers.db import (
     RecordNotFoundError,
     UniqueConstraintError,
     database_registry,
+    db_field,
     is_password_hash,
 )
 
@@ -63,10 +64,10 @@ async def test_fastapi_full_user_lifecycle_with_password_auth(tmp_path):
         unique_fields=["email"],
     )
     class User(BaseModel):
-        id: int | None = None
+        id: int | None = db_field(id_strategy="autoincrement", default=None)
         email: str
         name: str
-        password: str
+        password: str = db_field(hash_password=True)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):

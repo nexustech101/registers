@@ -22,6 +22,10 @@ BACKEND_URLS = {
     "postgres": "postgresql+psycopg://registers:registers@127.0.0.1:54329/registers_test",
     "mysql": "mysql+pymysql://registers:registers@127.0.0.1:33069/registers_test",
 }
+BACKEND_DRIVER_MODULES = {
+    "postgres": "psycopg",
+    "mysql": "pymysql",
+}
 _DOCKER_UNAVAILABLE_MARKERS = (
     "error during connect",
     "cannot connect to the docker daemon",
@@ -140,6 +144,10 @@ def backend_url(request: pytest.FixtureRequest, docker_backends: dict[str, str])
         raise RuntimeError(
             f"Unknown backend '{backend_name}'. Expected one of: {sorted(docker_backends)}"
         )
+    pytest.importorskip(
+        BACKEND_DRIVER_MODULES[backend_name],
+        reason=f"Skipping {backend_name} integration tests: optional DBAPI driver is not installed.",
+    )
     service_name = "postgres" if backend_name == "postgres" else "mysql"
     timeout_seconds = int(os.getenv("REGISTER_BACKEND_TIMEOUT_SECONDS", "240"))
     _wait_for_database(

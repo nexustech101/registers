@@ -5,7 +5,7 @@ from pydantic import BaseModel
 from sqlalchemy import inspect
 
 from conftest import backend_table_name
-from registers.db import MigrationError, database_registry
+from registers.db import MigrationError, database_registry, db_field
 
 
 @pytest.mark.parametrize("backend_url", ["postgres", "mysql"], indirect=True)
@@ -16,7 +16,7 @@ class TestRenameTableBackends:
 
         @database_registry(backend_url, table_name=table, key_field="id")
         class User(BaseModel):
-            id: int | None = None
+            id: int | None = db_field(id_strategy="autoincrement", default=None)
             email: str
 
         first = User.objects.create(email="alice@example.com")
@@ -37,12 +37,12 @@ class TestRenameTableBackends:
 
         @database_registry(backend_url, table_name=primary, key_field="id")
         class User(BaseModel):
-            id: int | None = None
+            id: int | None = db_field(id_strategy="autoincrement", default=None)
             email: str
 
         @database_registry(backend_url, table_name=target, key_field="id")
         class Existing(BaseModel):
-            id: int | None = None
+            id: int | None = db_field(id_strategy="autoincrement", default=None)
             email: str
 
         User.objects.create(email="alice@example.com")
@@ -61,7 +61,7 @@ class TestRenameTableBackends:
 
         @database_registry(backend_url, table_name=table, key_field="id")
         class Profile(BaseModel):
-            id: int | None = None
+            id: int | None = db_field(id_strategy="autoincrement", default=None)
             name: str
 
         Profile.objects.create(name="Alice")

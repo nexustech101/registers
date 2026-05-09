@@ -12,12 +12,12 @@ Pydantic's metaclass has already run and we can safely attach descriptors::
 
     @database_registry("app.db", table_name="authors", key_field="id")
     class Author(BaseModel):
-        id: int | None = None
+        id: int | None = db_field(id_strategy="autoincrement", default=None)
         name: str
 
     @database_registry("app.db", table_name="posts", key_field="id")
     class Post(BaseModel):
-        id: int | None = None
+        id: int | None = db_field(id_strategy="autoincrement", default=None)
         author_id: int
         title: str
 
@@ -52,6 +52,13 @@ if TYPE_CHECKING:
     from pydantic import BaseModel
 
 
+_PREFETCH_PREFIX = "__registers_prefetch_"
+
+
+def _prefetch_cache_name(name: str) -> str:
+    return f"{_PREFETCH_PREFIX}{name}"
+
+
 # ---------------------------------------------------------------------------
 # Base descriptor
 # ---------------------------------------------------------------------------
@@ -80,16 +87,37 @@ class _BaseRelationship:
             f"(e.g. Post.objects.create(author_id=...))."
         )
 
-    def _get_manager(self, model_cls: Any, manager_attr: str = "objects") -> Any:
+    def _get_manager(self, model_cls: Any, manager_attr: str | None = None) -> Any:
         """Retrieve the DatabaseRegistry attached to *model_cls*."""
-        manager = getattr(model_cls, manager_attr, None)
+        if manager_attr is not None:
+            manager = getattr(model_cls, manager_attr, None)
+        else:
+            manager = self._find_attached_manager(model_cls)
         if manager is None:
+            expected = manager_attr or "registered manager"
             raise RelationshipError(
-                f"Model '{model_cls.__name__}' has no '{manager_attr}' manager. "
+                f"Model '{model_cls.__name__}' has no '{expected}' manager. "
                 "Make sure it is decorated with @database_registry before "
                 f"the relationship '{self._attr_name}' is accessed."
             )
         return manager
+
+    @staticmethod
+    def _find_attached_manager(model_cls: Any) -> Any:
+        manager = getattr(model_cls, "objects", None)
+        if manager is not None and getattr(getattr(manager, "config", None), "model_cls", None) is model_cls:
+            return manager
+
+        for value in vars(model_cls).values():
+            config = getattr(value, "config", None)
+            if getattr(config, "model_cls", None) is model_cls:
+                return value
+        return None
+
+    def _cached(self, obj: Any) -> Any:
+        if self._attr_name == "<unbound>":
+            return None
+        return getattr(obj, _prefetch_cache_name(self._attr_name), None)
 
 
 # ---------------------------------------------------------------------------
@@ -107,12 +135,12 @@ class HasMany(_BaseRelationship):
 
         @database_registry("app.db", table_name="authors", key_field="id")
         class Author(BaseModel):
-            id: int | None = None
+            id: int | None = db_field(id_strategy="autoincrement", default=None)
             name: str
 
         @database_registry("app.db", table_name="posts", key_field="id")
         class Post(BaseModel):
-            id: int | None = None
+            id: int | None = db_field(id_strategy="autoincrement", default=None)
             author_id: int
             title: str
 
@@ -137,6 +165,9 @@ class HasMany(_BaseRelationship):
         # Accessed on the class itself → return the descriptor for introspection
         if obj is None:
             return self
+        cached = self._cached(obj)
+        if cached is not None:
+            return cached
 
         manager = self._get_manager(self._related_model)
 
@@ -148,8 +179,8 @@ class HasMany(_BaseRelationship):
             )
 
         # Determine the local primary key value
-        local_manager = getattr(type(obj), "objects", None)
-        local_key_field = local_manager.config.key_field if local_manager else "id"
+        local_manager = self._get_manager(type(obj))
+        local_key_field = local_manager.config.key_field
         local_key_value = getattr(obj, local_key_field)
 
         return manager.filter(**{self._foreign_key: local_key_value})
@@ -188,6 +219,9 @@ class BelongsTo(_BaseRelationship):
     def __get__(self, obj: Any, objtype: type | None = None) -> Any:
         if obj is None:
             return self
+        cached = self._cached(obj)
+        if cached is not None:
+            return cached
 
         manager = self._get_manager(self._related_model)
 
@@ -218,7 +252,7 @@ class HasManyThrough(_BaseRelationship):
 
         @database_registry("app.db", table_name="post_tags", key_field="id")
         class PostTag(BaseModel):
-            id: int | None = None
+            id: int | None = db_field(id_strategy="autoincrement", default=None)
             post_id: int
             tag_id: int
 
@@ -257,6 +291,9 @@ class HasManyThrough(_BaseRelationship):
     def __get__(self, obj: Any, objtype: type | None = None) -> Any:
         if obj is None:
             return self
+        cached = self._cached(obj)
+        if cached is not None:
+            return cached
 
         through_manager = self._get_manager(self._through)
         related_manager = self._get_manager(self._related_model)
@@ -272,8 +309,8 @@ class HasManyThrough(_BaseRelationship):
                 )
 
         # Determine local primary key
-        local_manager = getattr(type(obj), "objects", None)
-        local_key_field = local_manager.config.key_field if local_manager else "id"
+        local_manager = self._get_manager(type(obj))
+        local_key_field = local_manager.config.key_field
         local_key_value = getattr(obj, local_key_field)
 
         # Step 1: find all join-table rows matching this instance
@@ -295,3 +332,116 @@ class HasManyThrough(_BaseRelationship):
             if record is not None:
                 records.append(record)
         return records
+
+
+class OneToMany(HasMany):
+    """Explicit cardinality alias for :class:`HasMany`."""
+
+
+class ManyToOne(BelongsTo):
+    """Explicit cardinality alias for :class:`BelongsTo`."""
+
+
+class ManyToMany(HasManyThrough):
+    """Explicit cardinality alias for :class:`HasManyThrough`."""
+
+
+def prefetch(records: list[Any] | tuple[Any, ...], relationship_name: str) -> list[Any] | tuple[Any, ...]:
+    """Batch-load a relationship descriptor for a collection of records."""
+    if not records:
+        return records
+
+    owner = type(records[0])
+    relationship = getattr(owner, relationship_name, None)
+    if not isinstance(relationship, _BaseRelationship):
+        raise RelationshipError(
+            f"'{relationship_name}' is not a registers.db relationship on '{owner.__name__}'."
+        )
+    relationship._attr_name = relationship_name
+
+    if isinstance(relationship, HasManyThrough):
+        _prefetch_many_to_many(records, relationship_name, relationship)
+    elif isinstance(relationship, HasMany):
+        _prefetch_has_many(records, relationship_name, relationship)
+    elif isinstance(relationship, BelongsTo):
+        _prefetch_belongs_to(records, relationship_name, relationship)
+    else:  # pragma: no cover - defensive for future relationship types
+        raise RelationshipError(f"Unsupported relationship type for '{relationship_name}'.")
+    return records
+
+
+def _prefetch_has_many(
+    records: list[Any] | tuple[Any, ...],
+    relationship_name: str,
+    relationship: HasMany,
+) -> None:
+    local_manager = relationship._get_manager(type(records[0]))
+    local_values = [getattr(record, local_manager.config.key_field) for record in records]
+    related_manager = relationship._get_manager(relationship._related_model)
+    rows = related_manager.filter(**{f"{relationship._foreign_key}__in": local_values})
+
+    grouped: dict[Any, list[Any]] = {value: [] for value in local_values}
+    for row in rows:
+        grouped.setdefault(getattr(row, relationship._foreign_key), []).append(row)
+    for record in records:
+        local_value = getattr(record, local_manager.config.key_field)
+        object.__setattr__(record, _prefetch_cache_name(relationship_name), grouped.get(local_value, []))
+
+
+def _prefetch_belongs_to(
+    records: list[Any] | tuple[Any, ...],
+    relationship_name: str,
+    relationship: BelongsTo,
+) -> None:
+    related_manager = relationship._get_manager(relationship._related_model)
+    values = [getattr(record, relationship._local_key) for record in records]
+    lookup_values = [value for value in values if value is not None]
+    related_rows = (
+        related_manager.filter(**{f"{related_manager.key_field}__in": lookup_values})
+        if lookup_values
+        else []
+    )
+    by_key = {getattr(row, related_manager.key_field): row for row in related_rows}
+    for record, value in zip(records, values):
+        object.__setattr__(record, _prefetch_cache_name(relationship_name), by_key.get(value))
+
+
+def _prefetch_many_to_many(
+    records: list[Any] | tuple[Any, ...],
+    relationship_name: str,
+    relationship: HasManyThrough,
+) -> None:
+    local_manager = relationship._get_manager(type(records[0]))
+    local_values = [getattr(record, local_manager.config.key_field) for record in records]
+    through_manager = relationship._get_manager(relationship._through)
+    related_manager = relationship._get_manager(relationship._related_model)
+
+    join_rows = through_manager.filter(**{f"{relationship._source_key}__in": local_values})
+    target_ids: list[Any] = []
+    grouped_target_ids: dict[Any, list[Any]] = {value: [] for value in local_values}
+    for row in join_rows:
+        source_id = getattr(row, relationship._source_key)
+        target_id = getattr(row, relationship._target_key)
+        grouped_target_ids.setdefault(source_id, []).append(target_id)
+        if target_id not in target_ids:
+            target_ids.append(target_id)
+
+    related_rows = (
+        related_manager.filter(**{f"{related_manager.key_field}__in": target_ids})
+        if target_ids
+        else []
+    )
+    related_by_key = {getattr(row, related_manager.key_field): row for row in related_rows}
+
+    for record in records:
+        local_value = getattr(record, local_manager.config.key_field)
+        seen: set[Any] = set()
+        resolved = []
+        for target_id in grouped_target_ids.get(local_value, []):
+            if target_id in seen:
+                continue
+            seen.add(target_id)
+            related = related_by_key.get(target_id)
+            if related is not None:
+                resolved.append(related)
+        object.__setattr__(record, _prefetch_cache_name(relationship_name), resolved)

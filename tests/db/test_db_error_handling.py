@@ -5,14 +5,14 @@ from pydantic import BaseModel
 from sqlalchemy.exc import SQLAlchemyError
 
 from conftest import db_url
-from registers.db import SchemaError, database_registry
+from registers.db import SchemaError, database_registry, db_field
 
 
 class TestDbErrorHandling:
     def test_create_wraps_unexpected_sqlalchemy_error(self, tmp_path, monkeypatch):
         @database_registry(db_url(tmp_path), table_name="users", key_field="id")
         class User(BaseModel):
-            id: int | None = None
+            id: int | None = db_field(id_strategy="autoincrement", default=None)
             name: str
 
         def fail_create_with_conn(*_args, **_kwargs):

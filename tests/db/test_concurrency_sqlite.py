@@ -5,7 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pydantic import BaseModel
 
 from conftest import db_url
-from registers.db import database_registry
+from registers.db import database_registry, db_field
 
 
 class TestSQLiteConcurrency:
@@ -17,7 +17,7 @@ class TestSQLiteConcurrency:
             unique_fields=["email"],
         )
         class User(BaseModel):
-            id: int | None = None
+            id: int | None = db_field(id_strategy="autoincrement", default=None)
             email: str
             name: str
 

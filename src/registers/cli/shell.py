@@ -177,6 +177,17 @@ class InteractiveShell:
         version_text: str | None = None,
         colors: bool | None = None,
         usage: bool = False,
+        rich: bool = False,
+        theme: Any | None = None,
+        output: str | None = None,
+        quiet: bool = False,
+        verbose: bool = False,
+        no_color: bool = False,
+        completion: bool = False,
+        history: bool = False,
+        multiline: bool = False,
+        log_level: str | int | None = None,
+        log_panel: bool = False,
     ) -> None:
         self._registry     = registry
         self._print_result = print_result
@@ -190,8 +201,19 @@ class InteractiveShell:
         self._banner_text  = banner_text
         self._description  = description
         self._version_text = version_text
-        self._colors       = _supports_color() if colors is None else colors
+        self._colors       = False if no_color else (_supports_color() if colors is None else colors)
         self._usage        = usage
+        self._rich         = rich
+        self._theme        = theme
+        self._output       = output
+        self._quiet        = quiet
+        self._verbose      = verbose
+        self._completion   = completion
+        self._history      = history
+        self._multiline    = multiline
+        self._log_level    = log_level
+        self._log_panel    = log_panel
+        self._prompt_session = self._build_prompt_session() if self._using_builtin_input else None
 
     # ------------------------------------------------------------------
     # Public entry point
@@ -251,6 +273,8 @@ class InteractiveShell:
             prompt = _wrap_ansi_for_readline(prompt)
 
         try:
+            if self._prompt_session is not None:
+                return self._prompt_session.prompt(prompt)
             line = self._input_fn(prompt)
             if self._using_builtin_input and not self._readline_enabled and "\x1b[" in line:
                 return _strip_terminal_escapes(line)
@@ -261,6 +285,20 @@ class InteractiveShell:
         except KeyboardInterrupt:
             print()
             return ""
+
+    def _build_prompt_session(self) -> Any | None:
+        if not (self._completion or self._history or self._multiline):
+            return None
+        try:
+            from prompt_toolkit import PromptSession
+            from prompt_toolkit.completion import WordCompleter
+            from prompt_toolkit.history import InMemoryHistory
+        except Exception:
+            return None
+        words = list(self._registry.all()) + ["help", "commands", "exec", "watch", "pipe", "exit", "quit"]
+        completer = WordCompleter(words, ignore_case=True) if self._completion else None
+        history = InMemoryHistory() if self._history else None
+        return PromptSession(completer=completer, history=history, multiline=self._multiline)
 
     # ------------------------------------------------------------------
     # Parsing
@@ -289,6 +327,14 @@ class InteractiveShell:
                 self._error("'exec' requires a command to run.")
                 return _BuiltinAction.CONTINUE
             self._run_exec(command)
+            return _BuiltinAction.CONTINUE
+
+        if line.startswith("watch "):
+            self._run_watch(line[len("watch "):].strip())
+            return _BuiltinAction.CONTINUE
+
+        if line.startswith("pipe "):
+            self._run_pipe(line[len("pipe "):].strip())
             return _BuiltinAction.CONTINUE
 
         return _BuiltinAction.NOT_BUILTIN
@@ -400,37 +446,108 @@ class InteractiveShell:
     # ------------------------------------------------------------------
 
     def _dispatch(self, tokens: list[str]) -> None:
+        self._execute_tokens(tokens, print_result=True)
+
+    def _execute_tokens(self, tokens: list[str], *, print_result: bool) -> Any:
         command_token = tokens[0]
 
         try:
-            entry = self._registry.get(command_token)
+            entry, _command_tokens, command_args = self._registry._resolve_command_tokens(tokens)
         except UnknownCommandError:
             suggestion = self._registry.suggest(command_token)
             if suggestion:
                 self._hint(f"Unknown command '{command_token}'. Did you mean '{suggestion}'?")
             else:
                 self._error(f"Unknown command '{command_token}'.")
-            return
+            return None
 
         try:
-            kwargs = parse_command_args(entry, tokens[1:])
+            command_args, runtime_options = self._registry._strip_runtime_options(entry, command_args)
+            kwargs = parse_command_args(entry, command_args, allow_missing_prompts=True)
+            kwargs = self._registry._prompt_missing(entry, kwargs, input_fn=self._input_fn)
         except ParseError as exc:
             self._error(str(exc))
             print(self._c(render_command_usage(entry, program_name=self._program_name), _C.DIM))
-            return
+            return None
 
         try:
-            result = entry.handler(**kwargs)
+            result = self._registry._execute_entry(
+                entry,
+                kwargs,
+                context=None,
+                force=bool(runtime_options.get("force", False)),
+                input_fn=self._input_fn,
+                rich=self._rich,
+                log_level=self._log_level,
+                event_loop=None,
+            )
         except RegistrationError as exc:
             self._error(str(exc))
-            return
+            return None
         except Exception as exc:
             logger.exception("Unhandled command failure in shell for '%s'.", entry.name)
             self._error(str(CommandExecutionError(entry.name, str(exc))))
-            return
+            return None
 
-        if self._print_result and result is not None:
+        if print_result and self._print_result and result is not None and not self._quiet:
             self._print_command_result(entry.name, result)
+        return result
+
+    def _run_watch(self, text: str) -> None:
+        tokens = self._tokenize(text)
+        if not tokens:
+            self._error("'watch' requires a command.")
+            return
+        interval = 5.0
+        count = 1
+        command_tokens: list[str] = []
+        idx = 0
+        while idx < len(tokens):
+            token = tokens[idx]
+            if token == "--interval" and idx + 1 < len(tokens):
+                interval = float(tokens[idx + 1])
+                idx += 2
+                continue
+            if token == "--count" and idx + 1 < len(tokens):
+                count = int(tokens[idx + 1])
+                idx += 2
+                continue
+            command_tokens.append(token)
+            idx += 1
+        for iteration in range(count):
+            if iteration:
+                import time
+                time.sleep(interval)
+            self._execute_tokens(command_tokens, print_result=True)
+
+    def _run_pipe(self, text: str) -> None:
+        segments = [segment.strip() for segment in text.split("|") if segment.strip()]
+        if not segments:
+            self._error("'pipe' requires a command.")
+            return
+        tokens = self._tokenize(segments[0])
+        if not tokens:
+            return
+        result = self._execute_tokens(tokens, print_result=False)
+        for op in segments[1:]:
+            result = self._apply_pipe_op(result, op)
+        if result is not None:
+            self._print_command_result("pipe", result)
+
+    def _apply_pipe_op(self, result: Any, op: str) -> Any:
+        parts = op.split()
+        if not parts:
+            return result
+        if parts[0] == "count":
+            return len(result) if hasattr(result, "__len__") else 0
+        if parts[0] == "filter" and len(parts) == 2 and isinstance(result, list):
+            key, _, value = parts[1].partition("=")
+            return [row for row in result if isinstance(row, dict) and str(row.get(key)) == value]
+        if parts[0] == "sort" and len(parts) == 2 and isinstance(result, list):
+            key = parts[1]
+            return sorted(result, key=lambda row: str(row.get(key, "")) if isinstance(row, dict) else str(row))
+        self._error(f"Unknown pipe operation '{op}'.")
+        return result
 
     # ------------------------------------------------------------------
     # Rendering helpers
@@ -442,6 +559,8 @@ class InteractiveShell:
             ("help <command>", "Show detailed help for a specific command"),
             ("commands",       "List all registered commands"),
             ("exec <command>", "Run a system command in the host shell"),
+            ("watch <command>", "Re-run a command on an interval"),
+            ("pipe <command>", "Transform structured command output"),
             ("exit / quit",    "Leave interactive mode"),
         ]
         return "\n".join([
@@ -514,6 +633,10 @@ class InteractiveShell:
         return self._c(title, _C.BOLD)
 
     def _print_command_result(self, command_name: str, result: Any) -> None:
+        if self._output or self._rich:
+            from registers.cli.ux import print_result as render_print_result
+            render_print_result(result, output=self._output, rich=self._rich)
+            return
         text = str(result)
         if command_name in {"run", "install", "update", "pull", "cron"} and text.startswith("FX "):
             self._print_structured_result(text)
@@ -589,4 +712,3 @@ class InteractiveShell:
     def _c(self, text: str, code: str) -> str:
         """Apply an ANSI code when colors are enabled; no-op otherwise."""
         return f"{code}{text}{_C.RESET}" if self._colors else text
-

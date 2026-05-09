@@ -40,21 +40,25 @@ class DatabaseContext:
     metadata: MetaData = field(default_factory=MetaData)
     tables: dict[str, Table] = field(default_factory=dict)
     lock: threading.RLock = field(default_factory=threading.RLock)
+    disposed: bool = False
 
 
 _contexts: dict[str, DatabaseContext] = {}
 
 
-def _get_or_create_engine_unlocked(database_url: str) -> Engine:
+def _get_or_create_engine_unlocked(
+    database_url: str,
+    engine_options: dict[str, Any] | None = None,
+) -> Engine:
     if database_url not in _engines:
         logger.debug("Creating new SQLAlchemy engine for url='%s'.", database_url)
-        _engines[database_url] = _create_engine(database_url)
+        _engines[database_url] = _create_engine(database_url, engine_options=engine_options)
     else:
         logger.debug("Reusing cached SQLAlchemy engine for url='%s'.", database_url)
     return _engines[database_url]
 
 
-def get_engine(database_url: str) -> Engine:
+def get_engine(database_url: str, *, engine_options: dict[str, Any] | None = None) -> Engine:
     """
     Return a cached :class:`~sqlalchemy.engine.Engine` for *database_url*,
     creating one on first call.
@@ -63,10 +67,14 @@ def get_engine(database_url: str) -> Engine:
     decorator calls for the same database don't race.
     """
     with _lock:
-        return _get_or_create_engine_unlocked(database_url)
+        return _get_or_create_engine_unlocked(database_url, engine_options)
 
 
-def get_db_context(database_url: str) -> DatabaseContext:
+def get_db_context(
+    database_url: str,
+    *,
+    engine_options: dict[str, Any] | None = None,
+) -> DatabaseContext:
     """
     Return a cached :class:`DatabaseContext` for *database_url*.
 
@@ -78,7 +86,7 @@ def get_db_context(database_url: str) -> DatabaseContext:
         if context is None:
             context = DatabaseContext(
                 database_url=database_url,
-                engine=_get_or_create_engine_unlocked(database_url),
+                engine=_get_or_create_engine_unlocked(database_url, engine_options),
             )
             _contexts[database_url] = context
         return context
@@ -87,7 +95,9 @@ def get_db_context(database_url: str) -> DatabaseContext:
 def dispose_engine(database_url: str) -> None:
     """Dispose the engine for *database_url* and remove it from the cache."""
     with _lock:
-        _contexts.pop(database_url, None)
+        context = _contexts.pop(database_url, None)
+        if context is not None:
+            context.disposed = True
         engine = _engines.pop(database_url, None)
     if engine is not None:
         logger.debug("Disposing SQLAlchemy engine for url='%s'.", database_url)
@@ -131,7 +141,11 @@ def dialect_insert(engine: Engine, table: Table) -> Any:
     return None
 
 
-def _create_engine(database_url: str) -> Engine:
+def _create_engine(
+    database_url: str,
+    *,
+    engine_options: dict[str, Any] | None = None,
+) -> Engine:
     kwargs: dict[str, Any] = {"future": True}
 
     if database_url.startswith("sqlite"):
@@ -145,6 +159,9 @@ def _create_engine(database_url: str) -> Engine:
             # can be used from multiple threads (it serialises at the OS level
             # via its own locking).
             kwargs["connect_args"] = {"check_same_thread": False}
+
+    if engine_options:
+        kwargs.update(engine_options)
 
     engine = create_engine(database_url, **kwargs)
 

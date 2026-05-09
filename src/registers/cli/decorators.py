@@ -44,6 +44,9 @@ def argument(
     type: Any = str,
     help: str = "",
     default: Any = MISSING,
+    prompt: bool = False,
+    secret: bool = False,
+    confirm: bool = False,
 ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     """Declare an argument spec for a command function."""
 
@@ -54,6 +57,9 @@ def argument(
             arg_type=type,
             help_text=help,
             default=default,
+            prompt=prompt,
+            secret=secret,
+            confirm=confirm,
         )
         return fn
 
@@ -93,11 +99,29 @@ def register(
     *,
     description: str = "",
     help: str = "",
+    tags: Sequence[str] = (),
+    examples: Sequence[str] = (),
+    deprecated: bool = False,
+    render: bool = True,
+    default_output: str | None = None,
+    pager: bool = False,
+    error_hints: dict[str, str] | None = None,
+    capture_logs: bool = False,
 ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     """Finalize a staged command and register it in the default registry."""
 
     def decorator(fn: Callable[..., Any]) -> Callable[..., Any]:
-        _resolve_registry().finalize_command(
+        registry = _resolve_registry()
+        config = registry._config_for(fn)
+        config.tags = tuple(tags)
+        config.examples = tuple(examples)
+        config.deprecated = deprecated
+        config.render = render
+        config.default_output = default_output
+        config.pager = pager
+        config.error_hints = dict(error_hints or {})
+        config.capture_logs = capture_logs
+        registry.finalize_command(
             fn,
             name=name,
             description=description,
@@ -118,8 +142,21 @@ def run(
     shell_banner_text: str | None = None,
     shell_title: str = "Decorates CLI",
     shell_description: str = "Type 'help' for shell help and 'exit' to quit.",
+    shell_version: str | None = None,
     shell_colors: bool | None = None,
     shell_usage: bool = False,
+    rich: bool = False,
+    theme: Any | None = None,
+    output: str | None = None,
+    quiet: bool = False,
+    verbose: bool = False,
+    no_color: bool = False,
+    completion: bool = False,
+    history: bool = False,
+    multiline: bool = False,
+    log_level: str | int | None = None,
+    log_panel: bool = False,
+    event_loop: Any | None = None,
 ) -> Any:
     """Run the module-level default registry."""
 
@@ -132,9 +169,32 @@ def run(
         shell_banner_text=shell_banner_text,
         shell_title=shell_title,
         shell_description=shell_description,
+        shell_version=shell_version,
         shell_colors=shell_colors,
         shell_usage=shell_usage,
+        rich=rich,
+        theme=theme,
+        output=output,
+        quiet=quiet,
+        verbose=verbose,
+        no_color=no_color,
+        completion=completion,
+        history=history,
+        multiline=multiline,
+        log_level=log_level,
+        log_panel=log_panel,
+        event_loop=event_loop,
     )
+
+
+async def run_async(
+    argv: Sequence[str] | None = None,
+    *,
+    print_result: bool = True,
+    **kwargs: Any,
+) -> Any:
+    """Run the module-level default registry from an async runtime."""
+    return await _default_registry.run_async(argv, print_result=print_result, **kwargs)
 
 
 def run_shell(
@@ -147,8 +207,20 @@ def run_shell(
     banner_text: str | None = None,
     shell_title: str = "Decorates CLI",
     shell_description: str = "Type 'help' for shell help and 'exit' to quit.",
+    shell_version: str | None = None,
     colors: bool | None = None,
     shell_usage: bool = False,
+    rich: bool = False,
+    theme: Any | None = None,
+    output: str | None = None,
+    quiet: bool = False,
+    verbose: bool = False,
+    no_color: bool = False,
+    completion: bool = False,
+    history: bool = False,
+    multiline: bool = False,
+    log_level: str | int | None = None,
+    log_panel: bool = False,
 ) -> None:
     """Run the module-level default registry in interactive mode."""
 
@@ -161,8 +233,20 @@ def run_shell(
         banner_text=banner_text,
         shell_title=shell_title,
         shell_description=shell_description,
+        shell_version=shell_version,
         colors=colors,
         shell_usage=shell_usage,
+        rich=rich,
+        theme=theme,
+        output=output,
+        quiet=quiet,
+        verbose=verbose,
+        no_color=no_color,
+        completion=completion,
+        history=history,
+        multiline=multiline,
+        log_level=log_level,
+        log_panel=log_panel,
     )
 
 
@@ -182,3 +266,39 @@ def reset_registry() -> None:
     """Clear the module-level default registry (useful for tests)."""
 
     _default_registry.clear()
+
+
+def group(
+    name: str,
+    *,
+    description: str = "",
+    aliases: Sequence[str] = (),
+    tags: Sequence[str] = (),
+):
+    """Create a grouped command facade on the active registry."""
+    return _resolve_registry().group(name, description=description, aliases=aliases, tags=tags)
+
+
+def spinner(message: str):
+    """Attach a status spinner/message to a command."""
+    return _resolve_registry().spinner(message)
+
+
+def progress(description: str = "Working"):
+    """Attach a progress helper to a command."""
+    return _resolve_registry().progress(description)
+
+
+def confirm(message: str, *, danger: bool = False, confirm_phrase: str | None = None):
+    """Require confirmation before a command runs."""
+    return _resolve_registry().confirm(message, danger=danger, confirm_phrase=confirm_phrase)
+
+
+def dry_run():
+    """Add a ``--dry-run`` flag to a command."""
+    return _resolve_registry().dry_run()
+
+
+def context_factory(fn: Callable[..., Any]) -> Callable[..., Any]:
+    """Register a context factory on the active registry."""
+    return _resolve_registry().context_factory(fn)

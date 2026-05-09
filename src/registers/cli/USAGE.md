@@ -1,142 +1,28 @@
-<div align="center">
-
 # `registers.cli`
 
-**Decorator-first CLI runtime for production command surfaces, interactive consoles, plugin composition, and explicit dispatch workflows.**
+Decorator-first CLI runtime for Python applications, operator consoles, plugin surfaces, async workflows, and agent-invokable tools.
 
-[![Module](https://img.shields.io/badge/module-registers.cli-5C6BC0?style=for-the-badge)](#) [![Type](https://img.shields.io/badge/type-CLI%20Framework-1F2937?style=for-the-badge)](#) [![Architecture](https://img.shields.io/badge/architecture-Decorator--First-0F766E?style=for-the-badge)](#) [![Runtime](https://img.shields.io/badge/runtime-Interactive%20%2B%20Scriptable-7C3AED?style=for-the-badge)](#) [![Support](https://img.shields.io/badge/support-Plugins%20%7C%20DI%20%7C%20Middleware-9333EA?style=for-the-badge)](#) [![Maturity](https://img.shields.io/badge/status-Production%20Guide-2563EB?style=for-the-badge)](#)
-
-</div>
-
-## Tags
-
-`Command Registration` `Argument Parsing` `Interactive Shell` `Plugin Loading` `Registry Isolation` `Dependency Injection` `Middleware` `Operator UX`
-
-> **Positioning:** Use `registers.cli` when you want decorator ergonomics with runtime discipline: command metadata, explicit help semantics, collision-safe plugins, and testable registry boundaries.
-
----
-
-`registers.cli` is a decorator-first command runtime for building Python CLIs, interactive operator consoles, plugin-driven command surfaces, and dispatchable command workflows.
-
-This refactored manual is designed to be exhaustive without being noisy. It documents the public API, runtime behavior, architectural decision points, parsing rules, plugin patterns, dispatch model, error semantics, and production-ready project structures.
-
-## Audience
-
-Use this manual if you are:
-
-- building a single-file CLI application;
-- designing a multi-module internal operations console;
-- composing plugin-based command surfaces;
-- exposing command handlers to non-argv runtimes through explicit dispatch;
-- writing documentation or implementation instructions for an AI coding agent.
-
-## Operating Model
-
-`registers.cli` supports two equivalent command-registration models:
-
-| Model | Best for | Registry ownership |
-|---|---|---|
-| Module-level facade | Single CLI surface, scripts, small tools | Shared default registry |
-| `CommandRegistry()` instance | Tests, plugin hosts, tenant/workspace isolation, explicit runtime wiring | Caller-owned registry |
-
-Both models use the same decorator vocabulary: `register`, `argument`, and `alias`.
-
-## Production Contract
-
-A production CLI built with this module should provide:
-
-- deterministic command names and aliases;
-- explicit argument metadata for public commands;
-- predictable parse failures with exit code `2`;
-- discoverable help output for every command;
-- collision-safe plugin loading;
-- testable registry isolation when the command surface grows;
-- explicit dispatch only where DI, middleware, or non-argv execution is required.
-
----
-
-## 1. What `registers.cli` Gives You
-
-`registers.cli` is a decorator-first CLI framework with:
-
-- command registration by decorators
-- positional + named argument parsing
-- alias support (`--long` and `-s`)
-- built-in help system (`help`, `--help`, `-h`)
-- interactive shell mode (`--interactive`, `-i`)
-- plugin discovery/import (`load_plugins`)
-- isolated class-instance registries (`CommandRegistry`)
-- explicit dispatch with dependency injection (`DIContainer`) and middleware (`MiddlewareChain`)
-
-It supports two compatible architectures:
-
-1. Module-level default facade (`import registers.cli as cli`)
-2. Explicit class-instance facade (`registry = cli.CommandRegistry()`)
-
-Both support the same command decorators and runtime behavior.
-
-> **Key point:** This section defines the full capability surface and confirms that module-level and instance-level architectures are first-class and compatible.
-
----
-
-## 2. Pick an Architecture
-
-Use module-level facade when:
-
-- your script is a single CLI app
-- commands can share one global registry
-
-Use explicit `CommandRegistry()` when:
-
-- you need isolated registries in one process
-- you build plugin systems/tests with separate command scopes
-- you want explicit runtime wiring (`registry.dispatch(...)`)
-
-> **Key point:** Choose module-level for single-surface apps, and choose instance-level when you need isolation, composability, or explicit runtime control.
-
----
-
-## 3. Quick Start (Module-Level)
-
-**Import Fixtures**: supports three(3) types of importing syntax for convenience
+`registers.cli` keeps the original small-script ergonomics:
 
 ```python
-from registers import CommandRegistry  # class instance (recommended)
-from registers.cli import CommandRegistry  # class instance
-import registers.cli as cli  # cli = cli.CommandRegistry()
-```
+import registers.cli as cli
 
-Create `hello.py`:
-
-```python
-from __future__ import annotations
-
-from registers import CommandRegistry
-
-
-cli = CommandRegistry()
-
-@cli.register(description="Greet someone")
-@cli.argument("name", type=str, help="Person to greet")
+@cli.register(description="Greet a user")
+@cli.argument("name", type=str, help="Name to greet")
 @cli.alias("--greet")
-@cli.alias("-g")
 def greet(name: str) -> str:
     return f"Hello, {name}!"
 
 if __name__ == "__main__":
-    cli.run(
-        shell_title="Hello Console",
-        shell_description="Run greeting commands.",
-        shell_usage=True,
-    )
+    cli.run()
 ```
 
 Run:
 
 ```bash
-python hello.py greet Ada
-python hello.py --greet Ada
-python hello.py -g --name Ada
+python app.py greet Ada
+python app.py --greet Ada
+python app.py greet --name Ada
 ```
 
 Expected output:
@@ -145,1106 +31,474 @@ Expected output:
 Hello, Ada!
 ```
 
-> **Key point:** The module-level facade is the fastest path for building a standard CLI with decorators and `cli.run()`.
+## Install
 
----
+Core `registers.cli` uses the standard library and existing framework dependencies. Rich and prompt_toolkit are optional presentation extras:
 
-## 4. Quick Start (Explicit Instance Registry)
+```bash
+pip install registers
+pip install "registers[cli]"
+```
 
-Create `hello_instance.py`:
+The `cli` extra installs:
+
+- `rich>=15,<16` for styled help, tables, panels, spinners, progress, and structured output.
+- `prompt_toolkit>=3.0.52,<4` for optional interactive completion, history, and multiline input.
+
+When optional packages are missing, the runtime falls back to plain text.
+
+## Architecture
+
+Use the module-level facade for one command surface:
 
 ```python
-from __future__ import annotations
+import registers.cli as cli
+```
 
+Use an explicit registry for tests, plugins, isolated scopes, grouped command surfaces, and embedded runtimes:
+
+```python
 from registers import CommandRegistry
 
 registry = CommandRegistry()
-
-@registry.register(description="Greet someone")
-@registry.argument("name", type=str, help="Person to greet")
-@registry.alias("--greet")
-@registry.alias("-g")
-def greet(name: str) -> str:
-    return f"Hello, {name}!"
-
-if __name__ == "__main__":
-    registry.run(
-        shell_title="Hello Instance Console",
-        shell_description="Run greeting commands in isolated registry.",
-        shell_usage=True,
-    )
 ```
 
-Run:
+Both expose the same decorator vocabulary: `register`, `argument`, `option`, `alias`, `group`, `spinner`, `progress`, `confirm`, `dry_run`, and `context_factory`.
 
-```bash
-python hello_instance.py greet Ada
-python hello_instance.py --greet Ada
-python hello_instance.py -g --name Ada
-```
-
-Expected output:
-
-```text
-Hello, Ada!
-```
-
-Note:
-
-- `CommandRegistry` intentionally does not expose `register` on the class itself.
-- Decorators are exposed on registry instances (`registry.register`, `registry.argument`, `registry.alias`).
-
-> **Key point:** Instance mode keeps the same decorator ergonomics while isolating command state from other registries.
-
----
-
-## 5. Command Decorators and Naming Rules
-
-### `@register(name=None, description="", help="")`
-
-Finalizes a function into a command.
-
-Name resolution rules:
-
-1. If `name=` is provided, use it.
-2. Else infer from first long alias (`--add` -> command name `add`).
-3. Else fallback to function name.
-
-Example:
+## Command Registration
 
 ```python
-@cli.register(description="List tasks")
-@cli.alias("--list")
-def list_tasks() -> str:
-    return "ok"
-```
-
-Command token is `list`, and alias `--list` also works.
-
-### `@argument(name, type=str, help="", default=MISSING)`
-
-Declares argument metadata and order.
-
-- explicit declarations are authoritative for order/type/default/help
-- undeclared function params are inferred from function signature
-
-### `@option(flag, help="")`
-
-Adds a command option token, for example:
-
-```python
-@cli.option("--add")
-@cli.option("-a")
-```
-
-> **Key point:** Decorators define the command contract: name resolution, argument typing/defaults, and option tokens.
-
-
-### `@alias(flag, help="")`
-
-Alias for `@option(flag, help="")`:
-
-```python
-@cli.alias("--add")
-@cli.alias("-a")
-```
-
-> **Key point:** Decorators define the command contract: name resolution, argument typing/defaults, and alias tokens.
-
----
-
-## 6. Parsing Rules (All Supported Forms)
-
-Given:
-
-```python
-@cli.register(name="add", description="Add todo")
-@cli.argument("title", type=str, help="Title")
-@cli.argument("description", type=str, default="", help="Description")
+@cli.register(
+    name="add",
+    description="Add a todo item",
+    tags=["todo"],
+    examples=['add "Buy milk"', 'add "Buy milk" --description "2%"'],
+    deprecated=False,
+    render=True,
+    default_output=None,
+    pager=False,
+    error_hints={"TimeoutError": "Check the network and retry."},
+    capture_logs=False,
+)
+@cli.argument("title", type=str, help="Todo title")
+@cli.argument("description", type=str, default="", help="Optional description")
 @cli.alias("--add")
 @cli.alias("-a")
 def add(title: str, description: str = "") -> str:
     return f"Added: {title} | {description}"
 ```
 
-All of these are valid:
+Name rules:
+
+- `name=` wins when provided.
+- Otherwise the first long alias becomes the command name, for example `--add` becomes `add`.
+- Otherwise the function name is used.
+
+Parsing forms:
 
 ```bash
-python todo.py add "Buy milk" "2%"
-python todo.py --add "Buy milk" "2%"
-python todo.py -a --title "Buy milk" --description "2%"
-python todo.py add "Buy milk" --description "2%"
+python app.py add "Buy milk" "2%"
+python app.py --add "Buy milk" "2%"
+python app.py -a --title "Buy milk" --description "2%"
+python app.py add "Buy milk" --description "2%"
 ```
 
-Expected output:
-
-```text
-Added: Buy milk | 2%
-```
-
-### Boolean argument behavior
-
-Given:
+Boolean arguments are flag-style:
 
 ```python
-@cli.register(description="Run command")
-@cli.argument("verbose", type=bool, help="Enable verbose mode")
-def run(verbose: bool = False) -> str:
-    return f"verbose={verbose}"
+@cli.register(description="Run sync")
+@cli.argument("verbose", type=bool, default=False)
+def run(verbose: bool = False) -> bool:
+    return verbose
 ```
-
-Run:
 
 ```bash
 python app.py run
 python app.py run --verbose
 ```
 
-Expected output:
+Duplicate equal values are accepted; duplicate conflicting values fail with exit code `2`.
 
-```text
-verbose=False
-verbose=True
+## Command Groups
+
+Groups create multi-token commands while preserving the same decorators:
+
+```python
+from registers import CommandRegistry
+
+registry = CommandRegistry()
+users = registry.group("users", description="User commands", aliases=["u"], tags=["users"])
+ops = registry.group("ops", description="Operational workflows", aliases=["o"])
+deploy = ops.group("deploy", aliases=["d"])
+
+@users.register("list", description="List users", examples=["users list"])
+def list_users() -> list[dict]:
+    return [{"id": 1, "email": "ada@example.com"}]
+
+@deploy.register("service", description="Deploy a service")
+@deploy.argument("name", type=str)
+def deploy_service(name: str) -> str:
+    return f"deployed:{name}"
 ```
 
-### Duplicate argument behavior
-
-Same value twice is allowed:
+Run:
 
 ```bash
-python app.py add "Task A" --title "Task A"
+python app.py users list
+python app.py u list
+python app.py ops deploy service api
+python app.py o d service api
+python app.py help users
+python app.py help users list
 ```
 
-Different values for same arg fails:
+The resolver uses longest-match command lookup, so flat commands and grouped commands can coexist safely.
+
+## Extended Types
+
+Use `registers.cli.types` for validated parsing:
+
+```python
+from pathlib import Path
+import registers.cli as cli
+from registers.cli import types as t
+
+@cli.register(description="Process records")
+@cli.argument("input", type=t.Path(exists=True, readable=True), help="Input file")
+@cli.argument("count", type=t.Int(min=1, max=500), default=100)
+@cli.argument("ratio", type=t.Float(min=0.0, max=1.0), default=1.0)
+@cli.argument("env", type=t.Choice(["dev", "staging", "prod"]), default="dev")
+@cli.argument("day", type=t.Date("%Y-%m-%d"))
+@cli.argument("tags", type=t.List(str), default=[])
+@cli.argument("config", type=t.JSON, default={})
+def process(input: Path, count: int, ratio: float, env: str, day, tags: list[str], config: dict) -> dict:
+    return {"input": input.name, "count": count, "env": env}
+```
+
+Available helpers:
+
+- `Choice([...])`
+- `Path(exists=False, readable=False, writable=False)`
+- `Int(min=None, max=None)`
+- `Float(min=None, max=None)`
+- `Date(fmt="%Y-%m-%d")`
+- `List(item_type=str, separator=",")`
+- `JSON`
+- `Enum(MyEnum)`
+
+Invalid values raise parse errors and exit with status code `2`.
+
+## Prompts And Safety Gates
+
+Prompt for missing values only when interactive input is available:
+
+```python
+@cli.register(description="Create user")
+@cli.argument("email", type=str)
+@cli.argument("password", type=str, prompt=True, secret=True, confirm=True)
+def create_user(email: str, password: str) -> str:
+    return f"created:{email}"
+```
+
+Require command confirmation:
+
+```python
+@cli.register(description="Drop database", tags=["danger"])
+@cli.argument("db_name", type=str)
+@cli.confirm(
+    "This will permanently drop {db_name}.",
+    danger=True,
+    confirm_phrase="drop {db_name}",
+)
+def drop_database(db_name: str) -> str:
+    return f"dropped:{db_name}"
+```
+
+Run:
 
 ```bash
-python app.py add "Task A" --title "Task B"
+python app.py drop-database prod
+python app.py drop-database prod --force
 ```
 
-Expected output (and exit code `2`):
+Dry-run flags are decorator-driven:
 
-```text
-Error: Argument 'title' was provided multiple times with different values.
-usage: app.py add <title> [<description> | --description VALUE]
+```python
+@cli.register(description="Migrate users")
+@cli.dry_run()
+def migrate_users(dry_run: bool = False) -> str:
+    if dry_run:
+        return "[dry-run] Would migrate users."
+    return "Migration complete."
 ```
-
-### Unknown aliass
 
 ```bash
-python app.py add --unknown x
+python app.py migrate-users --dry-run
 ```
 
-Expected output (and exit code `2`):
+## Async Commands
 
-```text
-Error: Unknown alias '--unknown'.
-usage: app.py add <title> [<description> | --description VALUE]
+Async handlers run transparently from sync CLIs:
+
+```python
+@cli.register(description="Fetch user")
+@cli.argument("user_id", type=int)
+async def fetch_user(user_id: int) -> dict:
+    return {"id": user_id}
+
+if __name__ == "__main__":
+    cli.run()
 ```
 
-> **Key point:** Parsing supports positional/named/mixed forms, handles booleans as flags, and enforces deterministic conflict/error behavior.
+For an already-async caller, use `run_async`:
 
----
+```python
+result = await cli.run_async(["fetch-user", "1"], print_result=False)
+```
 
-## 7. Built-in Help and Suggestions
+Explicit dispatch also has an async path:
 
-Built-in tokens are always available:
+```python
+result = await registry.dispatch_async("fetch-user", {"user_id": 1})
+```
 
-- `help`
-- `--help`
-- `-h`
+## Context Injection
 
-Command examples:
+Context factories build session/run-level state once and inject it into commands by `ctx`, `context`, or type annotation.
+
+```python
+from registers.cli import Context
+
+class AppContext(Context):
+    def __init__(self, env: str) -> None:
+        self.env = env
+
+registry = cli.CommandRegistry()
+
+@registry.context_factory
+def build_context(env: str = "prod") -> AppContext:
+    return AppContext(env)
+
+@registry.register(description="Health")
+async def health(ctx: AppContext) -> dict:
+    return {"env": ctx.env, "status": "ok"}
+```
+
+Run:
 
 ```bash
-python app.py help
-python app.py --help
-python app.py -h
-python app.py help add
-python app.py help --help
+python app.py --env staging health
 ```
 
-Expected output snippets:
+The `--env` flag is consumed by the context factory, not by the command handler.
 
-```text
-<Shell Title>
-<Shell Description>
+## Output Modes
 
-Shell builtins
-  help            Show this menu
-  help <command>  Show detailed help for a specific command
-  commands        List all registered commands
-  exec <command>  Run a system command in the host shell
-  exit / quit     Leave interactive mode
-
-Registered commands
-  add      Add todo
-  update   Update todo
-```
-
-For `help add`:
-
-```text
-Command: add
-Description: Add todo
-Usage: usage: app.py add <title> [<description> | --description VALUE]
-Aliases: --add, -a
-```
-
-For `help --help`:
-
-```text
-Built-in Command: help
-```
-
-### Unknown command suggestions
+Default output preserves backward-compatible `str(result)` behavior. Opt into structured output with runtime flags:
 
 ```bash
-python app.py ad
+python app.py users list --output json
+python app.py users list --output csv
+python app.py users list --output rich
+python app.py users list --output plain
+python app.py users list --quiet
+python app.py users list --no-color
 ```
 
-Expected output (and exit code `2`):
+Framework-reserved aliases are available when a command owns the same argument name:
 
-```text
-Did you mean 'add'?
+```bash
+python app.py export --output report.csv
+python app.py export --output report.csv --cli-output json
 ```
 
-> **Key point:** Help is built in (global + command-specific), and unknown commands provide suggestion-driven recovery.
+Rendering rules:
 
----
+- `str`: unchanged in plain mode.
+- `dict`: JSON, key/value table, or plain key/value lines.
+- `list[dict]`: JSON, CSV, Rich table, or plain table.
+- `list[str]`: JSON or bullet/plain lines.
+- Rich renderables: passed to Rich when available.
+- `None`: prints nothing.
 
-## 8. Interactive Mode
+Per-command defaults:
 
-### How interactive mode starts
+```python
+@cli.register(description="Export users", default_output="csv")
+def export_users() -> list[dict]:
+    return [{"id": 1, "email": "ada@example.com"}]
+```
 
-`cli.run()` behavior:
+## Rich, Progress, And Logging
 
-- if no argv and stdin is a TTY: starts interactive shell
-- if no argv and stdin is not a TTY: prints standard help
+Enable Rich at runtime:
 
-You can force shell mode:
+```python
+registry.run(
+    rich=True,
+    theme="default",
+    shell_title="Control Plane",
+    shell_description="Operate account workflows.",
+)
+```
+
+Use spinners and progress decorators:
+
+```python
+@cli.register(description="Sync records")
+@cli.spinner("Syncing records...")
+def sync_records() -> str:
+    return "Sync complete."
+
+@cli.register(description="Process records")
+@cli.progress("Processing records")
+def process_records(progress) -> str:
+    task = progress.add_task("Processing", total=2)
+    progress.advance(task)
+    progress.advance(task)
+    return "Processed."
+```
+
+Capture command logs:
+
+```python
+@cli.register(description="Sync", capture_logs=True)
+def sync() -> str:
+    logger.warning("retrying")
+    return "done"
+
+registry.run(["sync"], log_level="WARNING", log_panel=True)
+```
+
+## Interactive Shell
+
+Interactive mode starts when no argv is passed and stdin is a TTY, or explicitly:
 
 ```bash
 python app.py --interactive
 python app.py -i
 ```
 
-### Interactive shell built-ins
+Shell built-ins:
 
 - `help`
 - `help <command>`
 - `commands`
-- `exec <command>`
+- `exec <shell command>`
+- `watch <command> --interval 5 --count 3`
+- `pipe <command> | filter FIELD=VALUE | sort FIELD | count`
 - `exit` / `quit`
 
-Example session:
-
-```text
-$ python app.py --interactive
-Task Console
-Manage tasks.
-
-> commands
-Registered commands
-  add      Add todo
-  update   Update todo
-
-> help add
-add
-  Add todo
-  Usage    usage: app.py add <title> [<description> | --description VALUE]
-  Aliases  --add, -a
-
-> add "Buy milk"
-Added: Buy milk | 
-
-> quit
-Goodbye.
-```
-
-### `exec` shell command
-
-In interactive mode:
-
-```text
-> exec echo hello world
-Exec Result
-  Shell: PowerShell
-  Command: echo hello world
-  Exit code: 0
-  Stdout:
-    hello world
-```
-
-If no command text:
-
-```text
-> exec
-Error: 'exec' requires a command to run.
-```
-
-### Interactive configuration aliass
-
-Both `cli.run(...)` and `cli.run_shell(...)` support:
-
-- title and description branding
-- prompt text
-- color mode
-- banner enable/disable
-- startup help menu (`shell_usage=True`)
-
-Example:
+Runtime configuration:
 
 ```python
-cli.run(
+registry.run(
     ["--interactive"],
-    shell_title="Task Console",
-    shell_description="Operate task workflows.",
-    shell_banner=False,
-    shell_colors=False,
+    shell_title="Admin Console",
+    shell_description="Operate production workflows.",
+    shell_banner=True,
     shell_usage=True,
+    completion=True,
+    history=True,
+    multiline=True,
+    rich=True,
 )
 ```
 
-> **Key point:** Interactive mode provides a shell-native operator workflow (`help`, `commands`, `exec`, `exit`) with configurable UX controls.
+The prompt_toolkit features activate only when prompt_toolkit is installed and builtin input is used.
 
----
+## Plugins
 
-## 9. Plugin Architectures (Discovery + Explicit Composition)
-
-`registers.cli` supports two plugin patterns:
-
-1. Discovery/import loading (`load_plugins`) for package-driven plugin folders.
-2. Explicit registry composition (`register_plugin`) for directly imported plugin registries.
-
-Use explicit composition when you want strict startup control and deterministic plugin ordering.
-
-### Explicit registry composition (recommended for class-instance apps)
+Discovery loading:
 
 ```python
-from __future__ import annotations
-
-import json
-
-from registers.cli import CommandRegistry
-from cli.commands.billing import cli as billing_cli
-from cli.commands.ops import cli as ops_cli
-from cli.commands.sessions import cli as sessions_cli
-from cli.commands.users import cli as users_cli
-from registers.db import RecordNotFoundError
-
-registry = CommandRegistry()
-
-try:
-    registry.register_plugin(billing_cli)
-    registry.register_plugin(users_cli)
-    registry.register_plugin(ops_cli)
-    registry.register_plugin(sessions_cli)
-except Exception as exc:
-    raise SystemError(f"Failed to load CLI plugins: {exc}")
-
-def main(argv: list[str] | None = None, print_result: bool = True):
-    try:
-        return registry.run(
-            argv,
-            print_result=print_result,
-            shell_title="User Account Admin CLI",
-            shell_description="Manage user accounts and auth sessions.",
-            shell_usage=True,
-        )
-    except RecordNotFoundError as exc:
-        payload = {"error": "not_found", "detail": str(exc)}
-        if print_result:
-            print(json.dumps(payload, indent=2, sort_keys=True))
-            return None
-        return json.dumps(payload, indent=2, sort_keys=True)
-```
-
-What `register_plugin(...)` accepts:
-
-- another `CommandRegistry` instance
-- any object exposing `get_registry() -> CommandRegistry`
-- a module exposing a registry as `module.cli`
-
-Collision behavior:
-
-- duplicate command names or aliases raise `DuplicateCommandError`
-- no silent overwrite occurs
-
-> **Key point:** Explicit composition gives deterministic plugin wiring and clean failure behavior for startup-critical CLIs.
-
-### Module-level loading
-
-Project:
-
-```text
-app/
-  plugins/
-    __init__.py
-    ping.py
-main.py
-```
-
-`app/plugins/ping.py`:
-
-```python
-import registers.cli as cli
-
-@cli.register(description="Plugin ping")
-@cli.alias("--ping")
-def ping() -> str:
-    return "pong"
-```
-
-`main.py`:
-
-```python
-import registers.cli as cli
-
-def main() -> None:
-    cli.load_plugins("app.plugins", cli.get_registry())
-    cli.run()
-
-if __name__ == "__main__":
-    main()
-```
-
-Run:
-
-```bash
-python main.py ping
-```
-
-Expected output:
-
-```text
-pong
-```
-
-### Instance-level discovery loading
-
-```python
-import registers.cli as cli
-
 registry = cli.CommandRegistry()
 registry.load_plugins("app.plugins")
 registry.run()
 ```
 
-This loads plugins into that registry instance only.
-
-> **Key point:** Choose discovery loading for package scanning, and explicit composition for startup-controlled registry wiring.
-
----
-
-## 10. Explicit Dispatch, DI, and Middleware
-
-This is the advanced path for non-argv runtimes, service injection, and
-cross-cutting behaviors.
+Explicit composition:
 
 ```python
-from __future__ import annotations
-
-import registers.cli as cli
-
-class GreeterService:
-    def greet(self, name: str) -> str:
-        return f"hi:{name}"
+from app.plugins.users import cli as users_cli
+from app.plugins.ops import cli as ops_cli
 
 registry = cli.CommandRegistry()
-
-@registry.register(name="injected", description="Injected greet")
-@registry.argument("name", type=str)
-def injected(name: str, service: GreeterService) -> str:
-    return service.greet(name)
-
-container = cli.DIContainer()
-container.register(GreeterService, GreeterService())
-
-chain = cli.MiddlewareChain()
-chain.add_pre(cli.logging_middleware_pre)
-chain.add_post(cli.logging_middleware_post)
-
-result = registry.dispatch(
-    "injected",
-    {"name": "Ada"},
-    container=container,
-    middleware=chain,
-)
-print(result)
+registry.register_plugin(users_cli)
+registry.register_plugin(ops_cli)
+registry.run()
 ```
 
-Expected output:
+Duplicate command names or aliases fail during registration; no silent overwrite occurs.
 
-```text
-hi:Ada
-```
+## DI And Middleware
 
-If the dependency is missing:
-
-```text
-DependencyNotFoundError: No instance registered for type 'GreeterService'...
-```
-
-> **Key point:** Use explicit dispatch for non-argv runtimes, typed dependency injection, and middleware-based execution hooks.
-
----
-
-## 11. Module-Level and Instance-Level Isolation
-
-Registries are isolated by design.
-
-This pattern is useful when one process hosts multiple command surfaces, for example:
-
-- a plugin host that runs separate command sets per tenant/workspace
-- an integration test harness that executes isolated registries without global collisions
-- an orchestrator that keeps "internal ops" commands separate from "user-facing" commands
-
-Example: three registries in one script, each with its own `sync` command token.
+Explicit dispatch remains available for service injection and non-argv runtimes:
 
 ```python
-from __future__ import annotations
+container = cli.DIContainer()
+container.register(UserService, UserService())
 
-import sys
-import registers.cli as cli
-
-first = cli.CommandRegistry()
-second = cli.CommandRegistry()
-
-@first.register(description="First")
-@first.alias("--sync")
-def sync_first() -> str:
-    return "first"
-
-@second.register(description="Second")
-@second.alias("--sync")
-def sync_second() -> str:
-    return "second"
-
-@cli.register(description="Module")
-@cli.alias("--sync")
-def sync_module() -> str:
-    return "module"
-
-def main() -> int:
-    if len(sys.argv) < 3:
-        print("Usage: python isolation_demo.py <first|second|module> <command> [args...]")
-        return 2
-
-    scope = sys.argv[1]
-    argv = sys.argv[2:]
-
-    if scope == "first":
-        result = first.run(argv, print_result=False)
-    elif scope == "second":
-        result = second.run(argv, print_result=False)
-    elif scope == "module":
-        result = cli.run(argv, print_result=False)
-    else:
-        print(f"Unknown scope '{scope}'. Use first|second|module.")
-        return 2
-
-    if result is not None:
-        print(result)
-    return 0
-
-if __name__ == "__main__":
-    raise SystemExit(main())
+result = registry.dispatch(
+    "create-user",
+    {"email": "ada@example.com"},
+    container=container,
+)
 ```
 
-Run:
+Middleware hooks still run through `MiddlewareChain`.
 
-```bash
-python isolation_demo.py first sync
-python isolation_demo.py first --sync
-python isolation_demo.py second sync
-python isolation_demo.py second --sync
-python isolation_demo.py module sync
-python isolation_demo.py module --sync
-```
+## Error Model
 
-Expected output:
+- Registration-time duplicate names and aliases raise `DuplicateCommandError`.
+- Reserved built-ins such as `help`, `--help`, `-h`, `--interactive`, and `-i` are rejected.
+- Parse errors print a message, print usage, and exit with status `2`.
+- Unknown commands suggest the closest command or alias when possible.
+- Unexpected handler failures are wrapped as `CommandExecutionError`.
+- Framework errors preserve structured context through `to_dict()`.
 
-```text
-first
-first
-second
-second
-module
-module
-```
+## Public API Index
 
-> **Key point:** We isolate command surfaces so each scope (tenant, plugin set, workflow, test harness, etc.) has its own command namespace, aliases, help output, and dispatch behavior without collisions.
+Module-level:
 
----
+- `register`, `argument`, `option`, `alias`
+- `group`, `spinner`, `progress`, `confirm`, `dry_run`, `context_factory`
+- `run`, `run_async`, `run_shell`
+- `list_commands`, `get_registry`, `reset_registry`
 
-## 12. Error Model and Exit Semantics
+Registry:
 
-### Registration-time errors
+- `CommandRegistry`
+- `registry.register`, `registry.argument`, `registry.option`, `registry.alias`
+- `registry.group`, `registry.spinner`, `registry.progress`, `registry.confirm`, `registry.dry_run`
+- `registry.context_factory`
+- `registry.run`, `registry.run_async`, `registry.run_shell`
+- `registry.dispatch`, `registry.dispatch_async`
+- `registry.load_plugins`, `registry.register_plugin`
+- `registry.list_commands`, `registry.print_help`, `registry.has`, `registry.get`, `registry.all`
 
-- duplicate command/alias -> `DuplicateCommandError`
-- reserved tokens (`help`, `--help`, `-h`, `--interactive`, `-i`) -> `ValueError`
-- invalid/de-duplicated argument declaration -> `ValueError`
+Runtime helpers:
 
-### Runtime parse errors
-
-For parse errors and unknown command/help targets:
-
-- message is printed
-- process exits with status `2` (`SystemExit(2)`)
-
-### Handler errors
-
-Unhandled handler exceptions are wrapped as:
-
-- `CommandExecutionError("Command '<name>' failed: <reason>")`
-
-Framework-level exceptions (`FrameworkError` subclasses) are passed through.
-
-> **Key point:** Registration failures are explicit, parse/help errors exit with code `2`, and unexpected handler failures are wrapped as `CommandExecutionError`.
-
----
-
-## 13. Full Public API Surface
-
-Primary module-level API:
-
-- `register(...)`
-- `argument(...)`
-- `alias(...)`
-- `run(...)`
-- `run_shell(...)`
-- `list_commands()`
-- `get_registry()`
-- `reset_registry()`
-
-Registry API:
-
-- `registry.register(...)`
-- `registry.argument(...)`
-- `registry.alias(...)`
-- `registry.run(...)`
-- `registry.run_shell(...)`
-- `registry.list_commands()`
-- `registry.print_help(...)`
-- `registry.has(...)`
-- `registry.get(...)`
-- `registry.all()`
-- `registry.load_plugins(...)`
-- `registry.register_plugin(...)`
-- `registry.dispatch(...)`
-- `registry.clear()`
-- `registry.reset_registry()`
-- `registry.get_registry()`
-- `registry.suggest(...)`
-
-Advanced runtime building blocks (also exported):
-
-- `CommandEntry`
-- `ArgumentEntry`
-- `MISSING`
-- `DIContainer`
-- `Dispatcher`
-- `MiddlewareChain`
-- `load_plugins(package_path, registry)`
-- `parse_command_args(entry, tokens)`
-- `logging_middleware_pre`
-- `logging_middleware_post`
+- `Theme`, `Context`, `console`, `style`, `Progress`
+- `types`
+- `DIContainer`, `Dispatcher`, `MiddlewareChain`
+- `load_plugins`, `parse_command_args`, `ParseError`
 
 Exceptions:
 
-- `FrameworkError`
+- `RegistrationError`
 - `DuplicateCommandError`
 - `UnknownCommandError`
 - `DependencyNotFoundError`
 - `CommandExecutionError`
 - `PluginLoadError`
-- `ParseError`
 
-> **Key point:** This section is the canonical public API index for both common and advanced CLI runtime integration.
-
----
-
-## 14. Agent Build Recipe
-
-When asked to "build a CLI tool that does X", follow this exact pattern.
-
-1. Choose architecture.
-
-- simple one-app script -> module-level `cli`
-- isolated/tested/multi-runtime app -> explicit `registry`
-
-2. Define commands.
-
-- one function per command
-- add aliases with `@alias("--long")` and aliasally `@alias("-s")`
-- define args with `@argument(...)`
-
-3. Wire runtime entrypoint.
-
-- module-level: `cli.run(...)`
-- instance-level: `registry.run(...)`
-
-4. Add plugin wiring if commands are split across modules.
-
-- module-level: `cli.load_plugins("pkg.plugins", cli.get_registry())`
-- instance-level: `registry.load_plugins("pkg.plugins")`
-- explicit instance composition: `registry.register_plugin(imported_plugin_registry)`
-
-5. Add DI/middleware only if needed.
-
-- use `registry.dispatch(...)` with `DIContainer` and `MiddlewareChain`
-
-6. Validate with these commands.
-
-```bash
-python app.py help
-python app.py help <command>
-python app.py <command> ...
-python app.py --interactive
-```
-
-7. Confirm expected UX.
-
-- unknown command suggests closest match
-- parse errors print usage and exit `2`
-- interactive shell supports `commands`, `help`, `exec`, `exit`
-
-> **Key point:** This is the build checklist agents should follow when asked to produce a CLI tool for a concrete task.
-
----
-
-## 15. Production Skeletons
-
-### A) Module-level skeleton
-
-```python
-from __future__ import annotations
-
-import registers.cli as cli
-
-@cli.register(description="Describe command")
-@cli.argument("value", type=str, help="Input value")
-@cli.alias("--do")
-def do(value: str) -> str:
-    return f"done:{value}"
-
-def main() -> None:
-    # aliasal plugin discovery:
-    # cli.load_plugins("app.plugins", cli.get_registry())
-    cli.run(
-        shell_title="My CLI",
-        shell_description="Automate operations.",
-        shell_banner=True,
-        shell_usage=True,
-    )
-
-if __name__ == "__main__":
-    main()
-```
-
-> **Key point:** Use this as the baseline template for single-surface CLIs using the module-level facade.
-
-### B) Instance-level skeleton
-
-```python
-from __future__ import annotations
-
-import registers.cli as cli
-
-registry = cli.CommandRegistry()
-
-@registry.register(description="Describe command")
-@registry.argument("value", type=str, help="Input value")
-@registry.alias("--do")
-def do(value: str) -> str:
-    return f"done:{value}"
-
-def main() -> None:
-    # aliasal plugin discovery:
-    # registry.load_plugins("app.plugins")
-    registry.run(
-        shell_title="My Isolated CLI",
-        shell_description="Automate operations with isolated registry.",
-        shell_banner=True,
-        shell_usage=True,
-    )
-
-if __name__ == "__main__":
-    main()
-```
-
-> **Key point:** Use this as the baseline template when you need isolated command registries and explicit runtime boundaries.
-
-> **Key point:** Section 15 provides copy-ready production starter templates for both supported architectures.
-
----
-
-## 16. Robust Medium-Project Plugin Architecture Example
-
-This example mirrors the pattern used in `C:\Users\charl\Documents\Python\todo`:
-
-- domain plugins (`todo`, `users`, `ops`)
-- one shared app package
-- plugin-based command growth over time
-- aliasal split into isolated command surfaces when scope gets large
-
-### Recommended project layout
-
-```text
-src/app/
-  __init__.py
-  __main__.py
-  app.py
-  plugins/
-    __init__.py
-    todo/
-      __init__.py
-      todo.py
-    users/
-      __init__.py
-      users.py
-    ops/
-      __init__.py
-      ops.py
-```
-
-### Example domain plugins
-
-`src/app/plugins/todo/todo.py`:
-
-```python
-from __future__ import annotations
-import registers.cli as cli
-
-@cli.register(description="Add todo item")
-@cli.argument("title", type=str)
-@cli.alias("--add")
-def add_todo(title: str) -> str:
-    return f"todo-added:{title}"
-```
-
-`src/app/plugins/users/users.py`:
-
-```python
-from __future__ import annotations
-import registers.cli as cli
-
-@cli.register(description="Create user")
-@cli.argument("email", type=str)
-@cli.alias("--create-user")
-def create_user(email: str) -> str:
-    return f"user-created:{email}"
-```
-
-`src/app/plugins/ops/ops.py`:
-
-```python
-from __future__ import annotations
-import registers.cli as cli
-
-@cli.register(description="Rotate API token")
-@cli.argument("service", type=str)
-@cli.alias("--rotate-token")
-def rotate_token(service: str) -> str:
-    return f"token-rotated:{service}"
-```
-
-### Pattern A: One shared command surface (module-level growth)
-
-Use when all domains should be available from one CLI namespace.
-
-`src/app/app.py`:
-
-```python
-from __future__ import annotations
-
-import registers.cli as cli
-
-def main() -> None:
-    cli.load_plugins("app.plugins.todo", cli.get_registry())
-    cli.load_plugins("app.plugins.users", cli.get_registry())
-    cli.load_plugins("app.plugins.ops", cli.get_registry())
-
-    cli.run(
-        shell_title="Control Plane Console",
-        shell_description="Todo + Users + Ops commands in one surface.",
-        shell_usage=True,
-    )
-
-if __name__ == "__main__":
-    main()
-```
-
-Run:
-
-```bash
-python -m app add "Buy milk"
-python -m app create-user "ada@example.com"
-python -m app rotate-token "billing-api"
-```
-
-Expected output:
-
-```text
-todo-added:Buy milk
-user-created:ada@example.com
-token-rotated:billing-api
-```
-
-### Pattern B: Split command surfaces (scoped registries)
-
-Use when different teams/scopes should not share one command namespace.
-
-`src/app/app.py`:
-
-```python
-from __future__ import annotations
-
-import sys
-from registers.cli import CommandRegistry
-
-def _build_registry(package_path: str) -> CommandRegistry:
-    registry = CommandRegistry()
-    registry.load_plugins(package_path)
-    return registry
-
-_SELECT_REGISTRY_PLUGINS: dict[str, CommandRegistry] = {
-    "todo" : _build_registry("app.plugins.todo"),
-    "users": _build_registry("app.plugins.users"),
-    "ops"  : _build_registry("app.plugins.ops"),
-}
-
-def main() -> int:
-    if len(sys.argv) < 3:
-        print("Usage: python -m app <todo|users|ops> <command> [args...]")
-        return 2
-
-    scope = sys.argv[1]
-    argv = sys.argv[2:]
-
-    registry = _SELECT_REGISTRY_PLUGINS.get(scope)
-    if registry is None:
-        print(f"Unknown scope '{scope}'. Use: todo|users|ops")
-        return 2
-
-    result = registry.run(
-        argv,
-        print_result=False,
-        shell_title=f"{scope} Console",
-        shell_description=f"{scope} command surface",
-        shell_usage=True,
-    )
-    if result is not None:
-        print(result)
-    return 0
-
-if __name__ == "__main__":
-    raise SystemExit(main())
-```
-
-Run:
-
-```bash
-python -m app todo add "Buy milk"
-python -m app users create-user "ada@example.com"
-python -m app ops rotate-token "billing-api"
-python -m app users help
-```
-
-Expected output:
-
-```text
-todo-added:Buy milk
-user-created:ada@example.com
-token-rotated:billing-api
-users Console
-users command surface
-...
-Registered commands
-  create-user  Create user
-```
-
-Why this scales well for medium projects:
-
-- each domain team owns its own plugin package
-- plugin loading keeps wiring explicit and composable
-- you can start with Pattern A and migrate to Pattern B without rewriting command handlers
-- instance registries prevent alias/command collisions across domains
-- each scope can have custom shell branding and help menu
-
-> **Key point:** Use Pattern A to extend one shared CLI surface quickly; use Pattern B to split large domains into isolated command surfaces with independent registries and no namespace collisions.
-
-### Pattern C: Explicit plugin registry composition (startup-controlled)
-
-Use when plugin registries are exported as `cli` objects and you want strict, explicit composition order.
-
-`src/app/app.py`:
-
-```python
-from __future__ import annotations
-
-from registers import CommandRegistry
-from app.plugins.todo import cli as todo_cli
-from app.plugins.users import cli as users_cli
-from app.plugins.ops import cli as ops_cli
-
-registry = CommandRegistry()
-registry.register_plugin(todo_cli)
-registry.register_plugin(users_cli)
-registry.register_plugin(ops_cli)
-
-def main() -> None:
-    registry.run(
-        shell_title="Control Plane Console",
-        shell_description="Explicit plugin registry composition.",
-        shell_usage=True,
-    )
-
-if __name__ == "__main__":
-    main()
-```
-
-Run:
-
-```bash
-python -m app add "Buy milk"
-python -m app create-user "ada@example.com"
-python -m app rotate-token "billing-api"
-```
-
-Expected output:
-
-```text
-todo-added:Buy milk
-user-created:ada@example.com
-token-rotated:billing-api
-```
-
-> **Key point:** Pattern C is ideal when teams prefer explicit plugin imports and strict startup composition over package discovery.
-
----
-
-This manual is aligned with the current `registers.cli` runtime behavior,
-including module-level and class-instance architectures, parser/dispatch flows,
-interactive shell behavior, plugin loading, DI/middleware execution, and error semantics.
-
----
-
-## Production Readiness Checklist
-
-Before publishing or deploying a `registers.cli` application, verify the following:
-
-- [ ] Every public command has a stable command name.
-- [ ] Every public command has a useful `description`.
-- [ ] Public arguments are declared with `@argument(...)` rather than relying entirely on signature inference.
-- [ ] Common aliases use `@alias("--long")`; short aliases are used only when they are obvious.
-- [ ] `python app.py help` and `python app.py help <command>` produce useful output.
-- [ ] Parse errors exit with status code `2` and display actionable usage.
-- [ ] Plugin loading is either discovery-based with clear package boundaries or explicit with deterministic ordering.
-- [ ] Duplicate command and alias collisions fail during startup.
-- [ ] Tests use isolated `CommandRegistry()` instances when global state would create leakage.
-- [ ] DI and middleware are reserved for runtime integration points, not simple command execution.
-
-## Recommended Positioning
-
-Use `registers.cli` as a command-runtime layer for internal tools, operator consoles, plugin surfaces, and agent-invokable workflows. For very small one-off scripts, the module-level facade is sufficient. For systems that will be tested, extended, or embedded in larger runtimes, prefer explicit `CommandRegistry()` ownership.
+## Production Checklist
+
+- Use explicit `CommandRegistry()` for applications, tests, and plugin hosts.
+- Declare public arguments with `@argument(...)`.
+- Use groups once command names need hierarchy.
+- Prefer `types.*` for validated public inputs.
+- Use `--cli-output` when a command owns an `output` argument.
+- Keep Rich and prompt_toolkit optional in libraries.
+- Test parse errors, output modes, help, group aliases, async handlers, prompts, confirmations, and shell built-ins.
