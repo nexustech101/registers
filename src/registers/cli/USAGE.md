@@ -1,8 +1,8 @@
 # `registers.cli`
 
-`registers.cli` is a decorator-first runtime for small scripts, internal operator tools, and plugin-composed command surfaces. It keeps framework behavior plain and scriptable: command parsing, grouped command resolution, context injection, async execution, prompts, confirmations, dry-runs, output modes, plugins, and an aliasal interactive shell.
+`registers.cli` is a decorator-first runtime for small scripts, internal operator tools, plugin-composed command surfaces, and interactive command shells. It keeps the framework plain and scriptable: command parsing, grouped command resolution, context injection, async execution, prompts, confirmations, dry-runs, output modes, plugins, and shell dispatch.
 
-Rich is not part of the framework API. If a particular CLI script wants a Rich table or panel, use Rich directly inside that script and return `None` so `registers.cli` does not print a second result.
+Rich is not part of the framework API. If a script wants a Rich table or panel, use Rich directly inside that script and return `None` so `registers.cli` does not print a second result.
 
 ## 1. Quick Start: Todo CLI
 
@@ -15,16 +15,14 @@ from enum import StrEnum
 from pathlib import Path
 from time import strftime
 
-from registers import CommandRegistry
+import registers.cli as cli
 import registers.db as db
 from pydantic import BaseModel
-from registers import db_field, DatabaseRegistry
+from registers.db import db_field
 
 DB_PATH = str(Path(__file__).with_suffix(".db"))
 NOW = lambda: strftime("%Y-%m-%d %H:%M:%S")
 
-cli = CommandRegistry()
-db = DatabaseRegistry()
 
 class TodoStatus(StrEnum):
     OPEN = "open"
@@ -40,9 +38,13 @@ class TodoItem(BaseModel):
     created_at: str = db_field(default_factory=NOW)
 
 
-@cli.register(name="add", description="Create a todo item")
+@cli.register(
+    name="add",
+    description="Create a todo item",
+    examples=['todos add "Buy milk"', 'todos --add "Buy milk" "2%"'],
+)
 @cli.argument("title", type=str, help="Todo title")
-@cli.argument("description", type=str, default="", help="aliasal details")
+@cli.argument("description", type=str, default="", help="Optional details")
 @cli.alias("--add")
 @cli.alias("-a")
 def add_todo(title: str, description: str = "") -> dict[str, object]:
@@ -88,98 +90,67 @@ python todos.py add "Buy milk" "2%"
 python todos.py list
 python todos.py list done
 python todos.py complete 1
+python todos.py help add
+python todos.py add --help
 python todos.py --interactive
 ```
 
-Important decorator behavior:
+Decorator behavior:
 
 - `@register(name="...")` sets the public command name. Without `name=`, the first long alias is used, then the function name.
+- `@register(..., examples=[...])` shows examples in command help, including interactive `help <command>`.
 - `@argument("name", type=..., help="...")` declares a public command argument.
-- `@argument(..., default=...)` makes the argument aliasal and shows the default in command help.
+- `@argument(..., default=...)` makes the argument optional and shows the default in command help.
 - `@option("--flag")` and `@alias("-f")` register command aliases.
-- `@alias("--flag")` and `@alias("-f")` alias for `@option`.
-- `default_output="json"` or `"csv"` sets a command’s normal structured output.
+- `default_output="json"` or `"csv"` sets a command's normal structured output.
 - `Choice([...])` validates values and displays choices in help and usage.
 
-## 2. Script-Level Rich Output
+## 2. Script-Owned Rich Output
 
-Keep Rich as an application choice. This gives a specific command a polished operator view without adding Rich concepts to the framework.
+Keep Rich as an application choice. Use it inside handlers that own their presentation, then return `None`.
 
 ```python
 from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
-from registers import CommandRegistry
 
-# ── Rich availability – checked once at import time ───────────────────────────
-try:
-    from rich.console import Console
-    from rich.table import Table as RichTable
-    _console = Console()
-    _RICH = True
-except ImportError:
-    _RICH = False
+import registers.cli as cli
+
+registry = cli.CommandRegistry()
 
 
-# ── Lightweight column spec ───────────────────────────────────────────────────
 @dataclass(frozen=True)
 class Column:
     key: str
     header: str
-    style: str = ""          # Rich style; ignored in plain fallback
 
 
-# ── Single render_table that dispatches on availability ───────────────────────
-def render_table(
-    title: str,
-    columns: list[Column],
-    rows: list[dict[str, str]],
-) -> None:
-    if _RICH:
-        _render_rich(title, columns, rows)
-    else:
+def render_table(title: str, columns: list[Column], rows: list[dict[str, str]]) -> None:
+    try:
+        from rich import print as rich_print
+        from rich.table import Table
+    except Exception:
         _render_plain(columns, rows)
+        return
 
-
-def _render_rich(
-    title: str,
-    columns: list[Column],
-    rows: list[dict[str, str]],
-) -> None:
-    table = RichTable(title=title)
+    table = Table(title=title)
     for col in columns:
-        table.add_column(col.header, style=col.style)
+        table.add_column(col.header)
     for row in rows:
         table.add_row(*(row[col.key] for col in columns))
-    _console.print(table)
+    rich_print(table)
 
 
-def _render_plain(
-    columns: list[Column],
-    rows: list[dict[str, str]],
-) -> None:
-    keys = [col.key for col in columns]
-    headers = [col.header for col in columns]
+def _render_plain(columns: list[Column], rows: list[dict[str, str]]) -> None:
     widths = {
         col.key: max(len(col.header), *(len(row[col.key]) for row in rows))
         for col in columns
     }
-    print("  ".join(h.ljust(widths[k]) for k, h in zip(keys, headers)))
-    print("  ".join("-" * widths[k] for k in keys))
+    print("  ".join(col.header.ljust(widths[col.key]) for col in columns))
+    print("  ".join("-" * widths[col.key] for col in columns))
     for row in rows:
-        print("  ".join(row[k].ljust(widths[k]) for k in keys))
-
-
-# ── App wiring ────────────────────────────────────────────────────────────────
-registry = CommandRegistry()
-
-SERVICE_COLUMNS = [
-    Column("service", "Service", style="bold cyan"),
-    Column("owner",   "Owner"),
-    Column("env",     "Environment", style="green"),
-    Column("region",  "Region",      style="magenta"),
-]
+        print("  ".join(row[col.key].ljust(widths[col.key]) for col in columns))
 
 
 class OpsContext(cli.Context):
@@ -196,25 +167,27 @@ def build_context(env: str = "prod", region: str = "us-east-1") -> OpsContext:
 services = registry.group("services", aliases=["svc"], description="Service inventory")
 
 
-def service_rows(ctx: OpsContext) -> list[dict[str, str]]:
-    return [
-        {"service": "api",     "owner": "platform",    "env": ctx.env, "region": ctx.region},
-        {"service": "worker",  "owner": "automation",  "env": ctx.env, "region": ctx.region},
-        {"service": "billing", "owner": "finance-eng", "env": ctx.env, "region": ctx.region},
-    ]
-
-
 @services.register("list", description="List services in the selected environment")
 async def list_services(ctx: OpsContext) -> None:
     await asyncio.sleep(0)
-    render_table("Service Inventory", SERVICE_COLUMNS, service_rows(ctx))
+    render_table(
+        "Service Inventory",
+        [
+            Column("service", "Service"),
+            Column("owner", "Owner"),
+            Column("env", "Environment"),
+            Column("region", "Region"),
+        ],
+        [
+            {"service": "api", "owner": "platform", "env": ctx.env, "region": ctx.region},
+            {"service": "worker", "owner": "automation", "env": ctx.env, "region": ctx.region},
+            {"service": "billing", "owner": "finance-eng", "env": ctx.env, "region": ctx.region},
+        ],
+    )
 
 
 if __name__ == "__main__":
-    registry.run(
-        shell_title="Ops Desk", 
-        shell_usage=True
-    )
+    registry.run(shell_title="Ops Desk", shell_usage=True)
 ```
 
 Run:
@@ -224,9 +197,9 @@ python ops.py --env stage --region us-west-2 services list
 python ops.py --interactive
 ```
 
-The handler returns `None` because it owns printing. If a command returns a `dict` or `list`, the framework prints it using the selected output mode.
+If a command returns a `dict` or `list`, the framework prints it using the selected output mode. If a command prints its own view, return `None`.
 
-## 3. Groups, Plugins, Context, And Newer CLI Features
+## 3. Groups, Plugins, Context, And Newer Features
 
 Use `CommandRegistry()` when a CLI has grouped commands, async handlers, plugins, context, or isolated command scopes.
 
@@ -234,7 +207,8 @@ Use `CommandRegistry()` when a CLI has grouped commands, async handlers, plugins
 from __future__ import annotations
 
 import asyncio
-from registers import CommandRegistry
+
+import registers.cli as cli
 
 registry = cli.CommandRegistry()
 
@@ -264,7 +238,11 @@ async def list_services(ctx: OpsContext) -> list[dict[str, str]]:
     ]
 
 
-@deploy.register("service", description="Deploy one service with a safety preview")
+@deploy.register(
+    "service",
+    description="Deploy one service with a safety preview",
+    examples=["ops deploy service api", "ops d service worker 2026.05 --dry-run"],
+)
 @deploy.argument("name", type=cli.types.Choice(["api", "worker", "billing"]), help="Service to deploy")
 @deploy.argument("version", type=str, default="latest", help="Artifact version")
 @deploy.dry_run()
@@ -279,6 +257,10 @@ def deploy_service(ctx: OpsContext, name: str, version: str = "latest", dry_run:
 def page_team(ctx: OpsContext, service: str, severity: str = "sev2") -> dict[str, str]:
     owner = {"api": "platform", "worker": "automation", "billing": "finance-eng"}[service]
     return {"env": ctx.env, "region": ctx.region, "service": service, "severity": severity, "page": f"{owner}-oncall"}
+
+
+if __name__ == "__main__":
+    registry.run(shell_title="Ops Desk", shell_usage=True)
 ```
 
 Run:
@@ -291,17 +273,27 @@ python ops.py deploy service api 2026.05 --dry-run
 python ops.py incidents page billing sev1
 python ops.py help incidents
 python ops.py help incidents page
+python ops.py deploy service --help
+python ops.py --interactive
 ```
 
-Help surfaces choices and defaults:
+Help surfaces choices, defaults, and examples:
 
 ```text
-Command group: incidents, inc
-  page <service: api|worker|billing> [severity: sev1|sev2|sev3]  Prepare a page
+deploy service
+  Deploy one service with a safety preview
+
+  Usage    usage: ops.py deploy service <name: api|worker|billing> [<version> | --version VALUE] [--dry-run]
+  Aliases  d service
 
 Arguments
-  service   (choice: api | worker | billing, required)              Impacted service
-  severity  (choice: sev1 | sev2 | sev3, aliasal, default='sev2')  -
+  name     (choice: api | worker | billing, required)  Service to deploy
+  version  (str, optional, default='latest')           Artifact version
+  dry_run  (bool, optional, default=False)             Preview the command without applying changes.
+
+Examples
+  ops deploy service api
+  ops d service worker 2026.05 --dry-run
 ```
 
 Runtime flags:
@@ -316,12 +308,12 @@ Runtime flags:
 Plugin composition keeps larger CLIs modular:
 
 ```python
-from registers.cli import CommandRegistry
+import registers.cli as cli
 from cli.commands.billing import cli as billing_cli
 from cli.commands.ops import cli as ops_cli
 from cli.commands.users import cli as users_cli
 
-registry = CommandRegistry()
+registry = cli.CommandRegistry()
 registry.register_plugin(users_cli)
 registry.register_plugin(billing_cli)
 registry.register_plugin(ops_cli)
@@ -334,15 +326,18 @@ Each plugin can export its own registry:
 
 ```python
 # cli/commands/users.py
-from registers import CommandRegistry
+import registers.cli as cli
 
-cli = cli.CommandRegistry()
-users = cli.group("users", aliases=["u"], description="User commands")
+users_cli = cli.CommandRegistry()
+users = users_cli.group("users", aliases=["u"], description="User commands")
 
 
 @users.register("list", description="List users", default_output="json")
 def list_users() -> list[dict[str, str]]:
     return [{"email": "ada@example.com", "role": "admin"}]
+
+
+cli = users_cli
 ```
 
 Duplicate command names or aliases fail during registration; plugins do not silently overwrite each other.
@@ -373,19 +368,20 @@ Pattern:
 
 ```python
 # cli/main.py
-from registers.cli import CommandRegistry
-from internal_admin.cli.commands.users import cli as users_cli
+import registers.cli as cli
+from internal_admin.app_context import AppContext
 from internal_admin.cli.commands.billing import cli as billing_cli
 from internal_admin.cli.commands.deploy import cli as deploy_cli
+from internal_admin.cli.commands.users import cli as users_cli
 
-registry = CommandRegistry()
+registry = cli.CommandRegistry()
 registry.register_plugin(users_cli)
 registry.register_plugin(billing_cli)
 registry.register_plugin(deploy_cli)
 
 
 @registry.context_factory
-def build_context(env: str = "prod", region: str = "us-east-1", profile: str = "default"):
+def build_context(env: str = "prod", region: str = "us-east-1", profile: str = "default") -> AppContext:
     return AppContext(env=env, region=region, profile=profile)
 
 
@@ -404,7 +400,7 @@ Guidelines:
 - Use `CommandRegistry()` for the host app and plugin registries.
 - Use `group(...)` for domain areas such as `users`, `billing`, `deploy`, `incidents`, and `ops`.
 - Use `context_factory` for environment, region, tenant, account, and profile selection.
-- Use `Choice(...)` for public alias sets so help shows valid values.
+- Use `Choice(...)` for public value sets so help shows valid values.
 - Use `default=...` on `argument(...)` when a missing value should be safe and predictable, such as `version="latest"` or `severity="sev2"`.
 - Use `confirm(...)` for destructive actions and `dry_run()` for previewable workflows.
 - Use `default_output="json"` or `default_output="csv"` for automation-friendly commands.
@@ -414,7 +410,7 @@ Guidelines:
 
 Public API checklist:
 
-- Module facade: `register`, `argument`, `alias`, `alias`, `group`, `confirm`, `dry_run`, `context_factory`, `run`, `run_async`, `run_shell`
+- Module facade: `register`, `argument`, `option`, `alias`, `group`, `confirm`, `dry_run`, `context_factory`, `run`, `run_async`, `run_shell`
 - Registry API: `CommandRegistry`, `register_plugin`, `load_plugins`, `dispatch`, `dispatch_async`
 - Runtime helpers: `Context`, `types`, `DIContainer`, `Dispatcher`, `MiddlewareChain`
 - Exceptions: `RegistrationError`, `DuplicateCommandError`, `UnknownCommandError`, `CommandExecutionError`, `PluginLoadError`
